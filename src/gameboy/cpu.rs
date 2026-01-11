@@ -101,6 +101,34 @@ impl Cpu {
                 4
             },
 
+            //JR
+            0x18 => {
+                let flags = &mut self.registers.flag_register;
+                let condition = match opcode {
+                    //JR e8
+                    0x18 => true,
+                    //JR NZ e8
+                    0x20 => flags.get_flag(Flags::ZERO) == 0,
+                    //JR Z e8
+                    0x28 => flags.get_flag(Flags::ZERO) == 1,
+                    //JR NC e8
+                    0x30 => flags.get_flag(Flags::CARRY) == 0,
+                    //JR C e8
+                    0x38 => flags.get_flag(Flags::CARRY) == 1,
+                    
+                    _ => unreachable!()
+                };
+                
+                if !condition {
+                    return 8;
+                }
+                
+                let jmp_offset = self.fetch_byte(mmu) as i8;
+                self.program_counter = ((self.program_counter as i16) + (jmp_offset as i16)) as u16;
+
+                12
+            },
+
             //RRA
             0x1F => {
                 let dst_register = Reg8::A;
@@ -459,6 +487,46 @@ impl Cpu {
 
                 cycles
             },
+            
+            //JP
+            0xC3 | 0xC2 | 0xCA | 0xD2 | 0xDA => {
+                let flags = &mut self.registers.flag_register;
+                let condition = match opcode {
+                    //JP a16
+                    0xC3 => true,
+                    //JP NZ a16
+                    0xC2 => flags.get_flag(Flags::ZERO) == 0,
+                    //JP Z a16
+                    0xCA => flags.get_flag(Flags::ZERO) == 1,
+                    //JP NC a16
+                    0xD2 => flags.get_flag(Flags::CARRY) == 0,
+                    //JP C a16
+                    0xDA => flags.get_flag(Flags::CARRY) == 1,
+
+                    _ => unreachable!()
+                };
+                
+                if !condition {
+                    return 12;
+                }
+
+                let low_byte = self.fetch_byte(mmu) as u16;
+                let high_byte = self.fetch_byte(mmu) as u16;
+
+                let addr = (high_byte << 8) + low_byte;
+                
+                self.program_counter = addr;
+
+                16
+            },
+
+            //PUSH
+            //0xC5 | 0xD5 | 0xE5 | 0xF5 => {
+            //self.stack_pointer -= 1;
+            //    mmu.write_byte(addr, value);
+            //
+            //    16
+            //},
 
             _ => panic!("Unimplemented opcode {:02X}", opcode)
         }
