@@ -275,17 +275,14 @@ impl Cpu {
             0x80..=0x87 | 0xC6 => {
                 let dst_register = Reg8::A;
                 let dst_value = self.registers.read8(&dst_register);
+                
+                let reg_num = opcode & 0x07;
 
-                let to_add_value: u8;
-                if opcode == 0x86 {
-                    let to_add_register = self.registers.hl();
-                    to_add_value = mmu.read_byte(to_add_register);
-                } else if opcode == 0xC6 {
-                    to_add_value = self.fetch_byte(mmu);
-                } else {
-                    let to_add_register = Reg8::from(opcode & 0x07);
-                    to_add_value = self.registers.read8(&to_add_register);
-                }
+                let to_add_value = match opcode {
+                    0x86 => mmu.read_byte(self.registers.hl()),
+                    0xC6 => self.fetch_byte(mmu),
+                    _ => self.registers.read8(&Reg8::from(reg_num))
+                };
                 
                 let result = dst_value.wrapping_add(to_add_value);
                 self.registers.write8(&dst_register, result);
@@ -296,7 +293,7 @@ impl Cpu {
                 flags.set_flag(Flags::HALF_CARRY, (dst_value & 0x0F) == 0x00);
                 flags.set_flag(Flags::CARRY, (dst_value as u16 + to_add_value as u16) > 0xFF);
 
-                if opcode == 0x86 || opcode == 0xC6 { 8 } else { 4 }
+                if reg_num == 6 { 8 } else { 4 }
             },
 
             //ADC A r8 | [HL] | n8
@@ -304,16 +301,13 @@ impl Cpu {
                 let dst_register = Reg8::A;
                 let dst_value = self.registers.read8(&dst_register);
                 
-                let to_add_value: u8;
-                if opcode == 0x8E {
-                    let to_add_register = self.registers.hl();
-                    to_add_value = mmu.read_byte(to_add_register);
-                } else if opcode == 0xCE {
-                    to_add_value = self.fetch_byte(mmu);
-                } else {
-                    let to_add_register = Reg8::from(opcode & 0x07);
-                    to_add_value = self.registers.read8(&to_add_register);
-                }
+                let reg_num = opcode & 0x07;
+
+                let to_add_value = match opcode {
+                    0x8E => mmu.read_byte(self.registers.hl()),
+                    0xCE => self.fetch_byte(mmu),
+                    _ => self.registers.read8(&Reg8::from(reg_num))
+                };
 
                 let carry_in = self.registers.flag_register.get_flag(Flags::CARRY);
                 let result = dst_value
@@ -328,25 +322,22 @@ impl Cpu {
                 flags.set_flag(Flags::HALF_CARRY, (dst_value & 0x0F + to_add_value & 0x0F + carry_in) > 0x0F);
                 flags.set_flag(Flags::CARRY, (dst_value as u16 + to_add_value as u16 + carry_in as u16) > 0xFF);
 
-                if opcode == 0x8E || opcode == 0xCE { 8 } else { 4 }
+                if reg_num == 6 { 8 } else { 4 }
             },
 
             //SBC A r8 | [HL] | n8
             0x98..=0x9F | 0xDE => {
                 let dst_register = Reg8::A;
                 let dst_value = self.registers.read8(&dst_register);
-
-                let to_sub_value: u8;
-                if opcode == 0x9E {
-                    let to_sub_register = self.registers.hl();
-                    to_sub_value = mmu.read_byte(to_sub_register);
-                } else if opcode == 0xDE {
-                    to_sub_value = self.fetch_byte(mmu);
-                } else {
-                    let to_sub_register = Reg8::from(opcode & 0x07);
-                    to_sub_value = self.registers.read8(&to_sub_register);
-                }
                 
+                let reg_num = opcode & 0x07;
+
+                let to_sub_value = match opcode {
+                    0x9E => mmu.read_byte(self.registers.hl()),
+                    0xDE => self.fetch_byte(mmu),
+                    _ => self.registers.read8(&Reg8::from(reg_num))
+                };
+
                 let carry_in = self.registers.flag_register.get_flag(Flags::CARRY);
                 let result = dst_value
                     .wrapping_sub(to_sub_value)
@@ -360,7 +351,7 @@ impl Cpu {
                 flags.set_flag(Flags::HALF_CARRY, dst_value & 0x0F < (to_sub_value & 0x0F + carry_in));
                 flags.set_flag(Flags::CARRY, dst_value < to_sub_value + carry_in);
 
-                if opcode == 0x96 || opcode == 0xD6 { 8 } else { 4 }
+                if reg_num == 6 { 8 } else { 4 }
             },
 
             //SUB A r8 | [HL] | n8
@@ -370,16 +361,13 @@ impl Cpu {
                 let dst_register = Reg8::A;
                 let dst_value = self.registers.read8(&dst_register);
 
-                let to_sub_value: u8;
-                if opcode == 0x96 || opcode == 0xBE {
-                    let to_sub_register = self.registers.hl();
-                    to_sub_value = mmu.read_byte(to_sub_register);
-                } else if opcode == 0xD6 || opcode == 0xFE {
-                    to_sub_value = self.fetch_byte(mmu);
-                } else {
-                    let to_sub_register = Reg8::from(opcode & 0x07);
-                    to_sub_value = self.registers.read8(&to_sub_register);
-                }
+                let reg_num = opcode & 0x07;
+
+                let to_sub_value = match opcode {
+                    0x96 | 0xBE => mmu.read_byte(self.registers.hl()),
+                    0xD6 | 0xFE => self.fetch_byte(mmu),
+                    _ => self.registers.read8(&Reg8::from(reg_num))
+                };
 
                 let result = dst_value.wrapping_sub(to_sub_value);
                 //if SUB
@@ -393,7 +381,7 @@ impl Cpu {
                 flags.set_flag(Flags::HALF_CARRY, (dst_value & 0x0F) < (to_sub_value & 0x0F));
                 flags.set_flag(Flags::CARRY, to_sub_value > dst_value);
 
-                if opcode == 0x96 || opcode == 0xD6 || opcode == 0xBE || opcode == 0xFE { 8 } else { 4 }
+                if reg_num == 6 { 8 } else { 4 }
             },
 
             // AND A r8 | [HL] | n8
@@ -401,16 +389,13 @@ impl Cpu {
                 let dst_register = Reg8::A;
                 let dst_value = self.registers.read8(&dst_register);
 
-                let to_and_value: u8;
-                if opcode == 0xA6 {
-                    let to_sub_register = self.registers.hl();
-                    to_and_value = mmu.read_byte(to_sub_register);
-                } else if opcode == 0xE6 {
-                    to_and_value = self.fetch_byte(mmu);
-                } else {
-                    let to_sub_register = Reg8::from(opcode & 0x07);
-                    to_and_value = self.registers.read8(&to_sub_register);
-                }
+                let reg_num = opcode & 0x07;
+
+                let to_and_value = match opcode {
+                    0xA6 => mmu.read_byte(self.registers.hl()),
+                    0xE6 => self.fetch_byte(mmu),
+                    _ => self.registers.read8(&Reg8::from(reg_num))
+                };
 
                 let result = dst_value & to_and_value;
                 self.registers.write8(&dst_register, result);
@@ -421,7 +406,7 @@ impl Cpu {
                 flags.set_flag(Flags::HALF_CARRY, true);
                 flags.set_flag(Flags::CARRY, false);
 
-                if opcode == 0xA6 || opcode == 0xE6 { 8 } else { 4 }
+                if reg_num == 6 { 8 } else { 4 }
             },
 
             //XOR A r8 | [HL] | n8
@@ -429,18 +414,15 @@ impl Cpu {
                 let dst_register = Reg8::A;
                 let dst_value = self.registers.read8(&dst_register);
 
-                let to_and_value: u8;
-                if opcode == 0xAE {
-                    let to_sub_register = self.registers.hl();
-                    to_and_value = mmu.read_byte(to_sub_register);
-                } else if opcode == 0xEE {
-                    to_and_value = self.fetch_byte(mmu);
-                } else {
-                    let to_sub_register = Reg8::from(opcode & 0x07);
-                    to_and_value = self.registers.read8(&to_sub_register);
-                }
+                let reg_num = opcode & 0x07;
 
-                let result = dst_value ^ to_and_value;
+                let to_xor_value = match opcode {
+                    0xAE => mmu.read_byte(self.registers.hl()),
+                    0xEE => self.fetch_byte(mmu),
+                    _ => self.registers.read8(&Reg8::from(reg_num))
+                };
+
+                let result = dst_value ^ to_xor_value;
                 self.registers.write8(&dst_register, result);
 
                 let flags = &mut self.registers.flag_register;
@@ -449,7 +431,7 @@ impl Cpu {
                 flags.set_flag(Flags::HALF_CARRY, false);
                 flags.set_flag(Flags::CARRY, false);
 
-                if opcode == 0xAE || opcode == 0xEE { 8 } else { 4 }
+                if reg_num == 6 { 8 } else { 4 }
             },
 
             //OR A r8 | [HL] | n8
@@ -457,18 +439,15 @@ impl Cpu {
                 let dst_register = Reg8::A;
                 let dst_value = self.registers.read8(&dst_register);
 
-                let to_and_value: u8;
-                if opcode == 0xB6 {
-                    let to_sub_register = self.registers.hl();
-                    to_and_value = mmu.read_byte(to_sub_register);
-                } else if opcode == 0xF6 {
-                    to_and_value = self.fetch_byte(mmu);
-                } else {
-                    let to_sub_register = Reg8::from(opcode & 0x07);
-                    to_and_value = self.registers.read8(&to_sub_register);
-                }
+                let reg_num = opcode & 0x07;
 
-                let result = dst_value | to_and_value;
+                let to_or_value = match opcode {
+                    0xB6 => mmu.read_byte(self.registers.hl()),
+                    0xF6 => self.fetch_byte(mmu),
+                    _ => self.registers.read8(&Reg8::from(reg_num))
+                };
+
+                let result = dst_value | to_or_value;
                 self.registers.write8(&dst_register, result);
                 
                 let flags = &mut self.registers.flag_register;
@@ -477,7 +456,7 @@ impl Cpu {
                 flags.set_flag(Flags::HALF_CARRY, false);
                 flags.set_flag(Flags::CARRY, false);
 
-                if opcode == 0xB6 || opcode == 0xF6 { 8 } else { 4 }
+                if reg_num == 6 { 8 } else { 4 }
             },
 
             //PREFIX
@@ -520,9 +499,17 @@ impl Cpu {
                 16
             },
 
-            //PUSH
+            ////POP
+            //0xC1 | 0xD1 | 0xE1 | 0xF1 => {
+            //    self.stack_pointer += 1;
+            //
+            //
+            //    12
+            //},
+            //
+            ////PUSH
             //0xC5 | 0xD5 | 0xE5 | 0xF5 => {
-            //self.stack_pointer -= 1;
+            //    self.stack_pointer -= 1;
             //    mmu.write_byte(addr, value);
             //
             //    16
