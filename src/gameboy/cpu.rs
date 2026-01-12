@@ -468,6 +468,83 @@ impl Cpu {
                 16
             },
 
+            //RET
+            0xC0 | 0xC8 | 0xC9 | 0xD0 | 0xD8 | 0xD9 => {
+                let flags = &mut self.registers.flag_register;
+                let condition = match opcode {
+                    //RET | RETI
+                    0xC9 | 0xD9 => true,
+                    //RET NZ
+                    0xC0 => flags.get_flag(Flags::ZERO) == 0,
+                    //RET Z
+                    0xC8 => flags.get_flag(Flags::ZERO) == 1,
+                    //RET NC
+                    0xD0 => flags.get_flag(Flags::CARRY) == 0,
+                    //RET C
+                    0xD8 => flags.get_flag(Flags::CARRY) == 1,
+
+                    _ => unreachable!()
+                };
+                
+                if !condition {
+                    return 8;
+                }
+
+                let lower_byte = mmu.read_byte(self.stack_pointer) as u16;
+                self.stack_pointer += 1;
+
+                let higher_byte = mmu.read_byte(self.stack_pointer) as u16;
+                self.stack_pointer += 1;
+
+                let jmp_addr = (higher_byte << 8) | lower_byte;
+                self.program_counter = jmp_addr;
+
+                //RETI
+                if opcode == 0xD9 {
+                    self.ime = true;
+                }
+
+                if opcode == 0xC9 || opcode == 0xD9 { 16 } else { 20 }
+            },
+
+            //CALL
+            0xC4 | 0xCC | 0xCD | 0xD4 | 0xDC => {
+                let flags = &mut self.registers.flag_register;
+                let condition = match opcode {
+                    //CALL a16
+                    0xCD => true,
+                    //CALL NZ a16
+                    0xC4 => flags.get_flag(Flags::ZERO) == 0,
+                    //CALL Z a16
+                    0xCC => flags.get_flag(Flags::ZERO) == 1,
+                    //CALL NC a16
+                    0xD4 => flags.get_flag(Flags::CARRY) == 0,
+                    //CALL C a16
+                    0xDC => flags.get_flag(Flags::CARRY) == 1,
+
+                    _ => unreachable!()
+                };
+                
+                if !condition {
+                    return 12;
+                }
+
+                let jmp_addr = self.fetch_word(mmu);
+
+                let pc_high = (self.program_counter >> 8) as u8;
+                let pc_low = (self.program_counter as u8) & 0xFF;
+
+                self.stack_pointer -= 1;
+                mmu.write_byte(self.stack_pointer, pc_high);
+
+                self.stack_pointer -= 1;
+                mmu.write_byte(self.stack_pointer, pc_low);
+                
+                self.program_counter = jmp_addr;
+
+                24
+            },
+
             //POP
             0xC1 | 0xD1 | 0xE1 | 0xF1 => {
                 let reg16_num = (opcode >> 4) & 0x03;
