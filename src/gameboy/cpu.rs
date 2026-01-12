@@ -1,11 +1,12 @@
 mod registers;
 
 use super::mmu::Mmu;
-use registers::{Flags, Reg8, Registers};
+use registers::{Flags, Reg8, Reg16, Registers};
 
-enum Destination {
+enum Operand8 {
     Register(Reg8),
-    HlIndirect,
+    IndirectHL,
+    Imm8
 }
 
 pub struct Cpu {
@@ -167,7 +168,7 @@ impl Cpu {
 
             //INC HL
             0x34 => {
-                let addr = self.registers.hl();
+                let addr = self.registers.read16(&Reg16::HL);
 
                 let val = mmu.read_byte(addr);
                 let result = val.wrapping_add(1);
@@ -199,7 +200,7 @@ impl Cpu {
 
             //DEC HL
             0x35 => {
-                let addr = self.registers.hl();
+                let addr = self.registers.read16(&Reg16::HL);
 
                 let val: u8 = mmu.read_byte(addr);
                 let result = val.wrapping_sub(1);
@@ -226,7 +227,7 @@ impl Cpu {
             //LD HL n8
             0x36 => {
                 let val = self.fetch_byte(mmu);
-                 mmu.write_byte(self.registers.hl(), val);
+                 mmu.write_byte(self.registers.read16(&Reg16::HL), val);
                 
                 12
             }
@@ -243,16 +244,16 @@ impl Cpu {
                 let src = Reg8::from(opcode & 0x07);
 
                 let val = self.registers.read8(&src);
-                mmu.write_byte(self.registers.hl(), val);
+                mmu.write_byte(self.registers.read16(&Reg16::HL), val);
 
                 8
             },
 
             //LD HL r8
             0x70 | 0x71 | 0x72 | 0x73 | 0x74 | 0x75 | 0x77 => {
-                let val = mmu.read_byte(self.registers.hl());
-                
                 let dst = Reg8::from((opcode >> 3) & 0x07);
+
+                let val = mmu.read_byte(self.registers.read16(&Reg16::HL));
                 self.registers.write8(&dst, val);
 
                 8
@@ -279,7 +280,7 @@ impl Cpu {
                 let reg_num = opcode & 0x07;
 
                 let to_add_value = match opcode {
-                    0x86 => mmu.read_byte(self.registers.hl()),
+                    0x86 => mmu.read_byte(self.registers.read16(&Reg16::HL)),
                     0xC6 => self.fetch_byte(mmu),
                     _ => self.registers.read8(&Reg8::from(reg_num))
                 };
@@ -304,7 +305,7 @@ impl Cpu {
                 let reg_num = opcode & 0x07;
 
                 let to_add_value = match opcode {
-                    0x8E => mmu.read_byte(self.registers.hl()),
+                    0x8E => mmu.read_byte(self.registers.read16(&Reg16::HL)),
                     0xCE => self.fetch_byte(mmu),
                     _ => self.registers.read8(&Reg8::from(reg_num))
                 };
@@ -333,7 +334,7 @@ impl Cpu {
                 let reg_num = opcode & 0x07;
 
                 let to_sub_value = match opcode {
-                    0x9E => mmu.read_byte(self.registers.hl()),
+                    0x9E => mmu.read_byte(self.registers.read16(&Reg16::HL)),
                     0xDE => self.fetch_byte(mmu),
                     _ => self.registers.read8(&Reg8::from(reg_num))
                 };
@@ -364,7 +365,7 @@ impl Cpu {
                 let reg_num = opcode & 0x07;
 
                 let to_sub_value = match opcode {
-                    0x96 | 0xBE => mmu.read_byte(self.registers.hl()),
+                    0x96 | 0xBE => mmu.read_byte(self.registers.read16(&Reg16::HL)),
                     0xD6 | 0xFE => self.fetch_byte(mmu),
                     _ => self.registers.read8(&Reg8::from(reg_num))
                 };
@@ -392,7 +393,7 @@ impl Cpu {
                 let reg_num = opcode & 0x07;
 
                 let to_and_value = match opcode {
-                    0xA6 => mmu.read_byte(self.registers.hl()),
+                    0xA6 => mmu.read_byte(self.registers.read16(&Reg16::HL)),
                     0xE6 => self.fetch_byte(mmu),
                     _ => self.registers.read8(&Reg8::from(reg_num))
                 };
@@ -417,7 +418,7 @@ impl Cpu {
                 let reg_num = opcode & 0x07;
 
                 let to_xor_value = match opcode {
-                    0xAE => mmu.read_byte(self.registers.hl()),
+                    0xAE => mmu.read_byte(self.registers.read16(&Reg16::HL)),
                     0xEE => self.fetch_byte(mmu),
                     _ => self.registers.read8(&Reg8::from(reg_num))
                 };
@@ -442,7 +443,7 @@ impl Cpu {
                 let reg_num = opcode & 0x07;
 
                 let to_or_value = match opcode {
-                    0xB6 => mmu.read_byte(self.registers.hl()),
+                    0xB6 => mmu.read_byte(self.registers.read16(&Reg16::HL)),
                     0xF6 => self.fetch_byte(mmu),
                     _ => self.registers.read8(&Reg8::from(reg_num))
                 };
@@ -541,13 +542,14 @@ impl Cpu {
 
         let destination_num = prefixed_opcode & 0x07;
         let destination = match destination_num {
-            6 => Destination::HlIndirect,
-            _ => Destination::Register(Reg8::from(destination_num))
+            6 => Operand8::IndirectHL,
+            _ => Operand8::Register(Reg8::from(destination_num))
         };
 
         let dst_value = match destination {
-            Destination::HlIndirect => mmu.read_byte(self.registers.hl()),
-            Destination::Register(ref reg) => self.registers.read8(reg)
+            Operand8::IndirectHL => mmu.read_byte(self.registers.read16(&Reg16::HL)),
+            Operand8::Register(ref reg) => self.registers.read8(reg),
+            Operand8::Imm8 => unreachable!(), //immediate data in the prefixed opcode space is not used
         };
 
         let result: u8 = match prefixed_opcode {
@@ -664,8 +666,9 @@ impl Cpu {
         }
         
         match destination {
-            Destination::HlIndirect => mmu.write_byte(self.registers.hl(), result),
-            Destination::Register(ref reg) => self.registers.write8(reg, result)
+            Operand8::IndirectHL => mmu.write_byte(self.registers.read16(&Reg16::HL), result),
+            Operand8::Register(ref reg) => self.registers.write8(reg, result),
+            Operand8::Imm8 => unreachable!(), //immediate data in the prefixed opcode space is not used
         }
         
         if destination_num == 6 { 12 } else { 8 }

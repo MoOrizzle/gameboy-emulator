@@ -3,25 +3,36 @@ use strum_macros::EnumIter;
 
 #[derive(PartialEq, EnumIter)]
 pub enum Reg8 {
-    A = 7,
     B = 0, 
     C = 1, 
     D = 2,
     E = 3, 
     H = 4, 
     L = 5,  
-}
-
-pub enum Reg16 {
-    BC, 
-    DE, 
-    HL = 6
+    A = 7,
 }
 
 impl Reg8 {
     pub fn from(reg: u8) -> Reg8 {
-        Reg8::iter().get(reg as usize)
-            .expect("Unknown Register!")
+        Reg8::iter()
+            .get(reg as usize)
+            .expect("Unknown Reg8 Register!")
+    }
+}
+
+#[derive(PartialEq, EnumIter)]
+pub enum Reg16 {
+    BC = 0, 
+    DE = 1, 
+    HL = 2,
+    AF = 3,
+}
+
+impl Reg16 {
+    pub fn from(reg: u8) -> Reg16 {
+        Reg16::iter()
+            .get(reg as usize)
+            .expect("Unknown Reg16 Register!")
     }
 }
 
@@ -75,40 +86,27 @@ impl Registers {
         }
     }
 
-    pub fn hl(&self) -> u16 {
-        ((self.h as u16) << 8) | self.l as u16
+    pub fn read16(&self, reg: &Reg16) -> u16 {
+        let (high_byte, low_byte) = match reg {
+            Reg16::BC => (self.b, self.c),
+            Reg16::DE => (self.d, self.e),
+            Reg16::HL => (self.h, self.l),
+            Reg16::AF => (self.a, self.flag_register.flags)
+        };
+
+        ((high_byte as u16) << 8) | low_byte as u16
     }
 
-    pub fn set_hl(&mut self, value: u16) {
-        self.h = (value >> 8) as u8;
-        self.l = (value & 0xF0) as u8;
-    }
+    pub fn write16(&mut self, reg: &Reg16, value: u16) {
+        let (high_reg, low_reg) = match reg {
+            Reg16::BC => (&mut self.b, &mut self.c),
+            Reg16::DE => (&mut self.d, &mut self.e),
+            Reg16::HL => (&mut self.h, &mut self.l),
+            Reg16::AF => (&mut self.a, &mut self.flag_register.flags)
+        };
 
-    pub fn af(&self) -> u16 {
-        ((self.a as u16) << 8) | self.flag_register.flags as u16
-    }
-
-    pub fn set_af(&mut self, value: u16) {
-        self.a = (value >> 8) as u8;
-        self.flag_register.flags = (value & 0xF0) as u8;
-    }
-
-    pub fn bc(&self) -> u16 {
-        ((self.b as u16) << 8) | self.c as u16
-    }
-
-    pub fn set_bc(&mut self, value: u16) {
-        self.b = (value >> 8) as u8;
-        self.c = (value & 0xF0) as u8;
-    }
-
-    pub fn de(&self) -> u16 {
-        ((self.d as u16) << 8) | self.e as u16
-    }
-
-    pub fn set_de(&mut self, value: u16) {
-        self.d = (value >> 8) as u8;
-        self.e = (value & 0xF0) as u8;
+        *high_reg = (value >> 8) as u8;
+        *low_reg = (value & 0xF0) as u8;
     }
 }
 
