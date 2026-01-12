@@ -442,7 +442,7 @@ impl Cpu {
             },
             
             //JP
-            0xC3 | 0xC2 | 0xCA | 0xD2 | 0xDA => {
+            0xC2 | 0xC3 | 0xCA | 0xD2 | 0xDA => {
                 let flags = &mut self.registers.flag_register;
                 let condition = match opcode {
                     //JP a16
@@ -463,37 +463,17 @@ impl Cpu {
                     return 12;
                 }
                 
-                let low_byte = self.fetch_byte(mmu) as u16;
-                let high_byte = self.fetch_byte(mmu) as u16;
-
-                let addr = (high_byte << 8) + low_byte;
-                
-                self.program_counter = addr;
+                self.program_counter = self.fetch_word(mmu);
 
                 16
             },
 
-            ////POP
-            //0xC1 | 0xD1 | 0xE1 | 0xF1 => {
-            //    self.stack_pointer += 1;
-            //
-            //
-            //    12
-            //},
-            //
-            ////PUSH
-            //0xC5 | 0xD5 | 0xE5 | 0xF5 => {
-            //    self.stack_pointer -= 1;
-            //    mmu.write_byte(addr, value);
-            //
-            //    16
-            //},
 
             _ => panic!("Unimplemented opcode {:02X}", opcode)
         }
     }
 
-    /// fetches bytes from MMU
+    /// fetches next byte from MMU
     /// 
     /// increments program counter by 1
     fn fetch_byte(&mut self, mmu: &Mmu) -> u8 {
@@ -501,6 +481,16 @@ impl Cpu {
         self.program_counter += 1;
 
         val
+    }
+
+    /// fetches next word (2 bytes) from MMU
+    /// 
+    /// increments program counter by 2
+    fn fetch_word(&mut self, mmu: &Mmu) -> u16 {
+        let low_byte = self.fetch_byte(mmu) as u16;
+        let high_byte = self.fetch_byte(mmu) as u16;
+
+        (high_byte << 8) + low_byte
     }
 
     fn set_rotate_register_flags(&mut self, result: u8, pushed_out: u8) {
