@@ -9,12 +9,21 @@ enum Operand8 {
     Imm8
 }
 
+const INTERRUPTS: [(u8, u16); 5] = [
+    (0, 0x40),
+    (1, 0x48),
+    (2, 0x50),
+    (3, 0x58),
+    (4, 0x60),
+];
+
 pub struct Cpu {
     pub program_counter: u16,
     pub stack_pointer: u16,
 
     pub registers: Registers,
     
+    pub pending_ime: bool,
     pub ime: bool, // Interrupt Master Enable
     pub halted: bool,
 }
@@ -25,6 +34,7 @@ impl Cpu {
             stack_pointer: 0xFFFE,
             program_counter: 0x0100,
             registers: Registers::new(),
+            pending_ime: false,
             ime: false,
             halted: false,
         }
@@ -34,13 +44,26 @@ impl Cpu {
     /// 
     /// * `result` - Returns the cycles the cpu needs to execute the current opcode
     pub fn step(&mut self, mmu: &mut Mmu) -> u8 {
+        
+        if self.handle_interrupts(mmu) {
+            if self.pending_ime {
+                self.pending_ime = false;
+                self.ime = true;
+            }
+            return 5;
+        }
+
         if self.halted {
+            let ie = mmu.read_byte(0xFFFF);
+            let iflag = mmu.read_byte(0xFF0F);
+            if ie & iflag != 0 {
+                self.halted = false;
+            }
             return 4;
         }
 
         let opcode = self.fetch_byte(mmu);
-
-        match opcode {
+        let cylces = match opcode {
             // NOP aka No OPeration
             0x00 => 4,
 
@@ -102,8 +125,28 @@ impl Cpu {
                 4
             },
 
+            //RRA
+            0x1F => {
+                let dst_register = Reg8::A;
+                let dst_value = self.registers.read8(&dst_register);
+
+                let carry_flag = self.registers.flag_register.get_flag(Flags::CARRY);
+                let pushed_out = dst_value & 1;
+                let result = (dst_value >> 1) | (carry_flag << 7);
+
+                self.registers.write8(&dst_register, result);
+                
+                let flags = &mut self.registers.flag_register;
+                flags.set_flag(Flags::ZERO, false);
+                flags.set_flag(Flags::SUBSTRACTION, false);
+                flags.set_flag(Flags::HALF_CARRY, false);
+                flags.set_flag(Flags::CARRY, pushed_out == 1);
+
+                4
+            },
+
             //JR
-            0x18 => {
+            0x18 | 0x20 | 0x28 | 0x30 | 0x38 => {
                 let flags = &mut self.registers.flag_register;
                 let condition = match opcode {
                     //JR e8
@@ -128,26 +171,6 @@ impl Cpu {
                 self.program_counter = ((self.program_counter as i16) + (jmp_offset as i16)) as u16;
 
                 12
-            },
-
-            //RRA
-            0x1F => {
-                let dst_register = Reg8::A;
-                let dst_value = self.registers.read8(&dst_register);
-
-                let carry_flag = self.registers.flag_register.get_flag(Flags::CARRY);
-                let pushed_out = dst_value & 1;
-                let result = (dst_value >> 1) | (carry_flag << 7);
-
-                self.registers.write8(&dst_register, result);
-                
-                let flags = &mut self.registers.flag_register;
-                flags.set_flag(Flags::ZERO, false);
-                flags.set_flag(Flags::SUBSTRACTION, false);
-                flags.set_flag(Flags::HALF_CARRY, false);
-                flags.set_flag(Flags::CARRY, pushed_out == 1);
-
-                4
             },
             
             //INC r8 | HL
@@ -182,7 +205,9 @@ impl Cpu {
                 let flags = &mut self.registers.flag_register;
                 flags.set_flag(Flags::ZERO, result == 0);
                 flags.set_flag(Flags::SUBSTRACTION, false);
-                flags.set_flag(Flags::HALF_CARRY, (val & 0x0F) == 0x0F);
+
+                let half_carry_borrow = if is_inc { 0x0F } else { 0x00 };
+                flags.set_flag(Flags::HALF_CARRY, (val & 0x0F) == half_carry_borrow);
                 
                 if destination_num == 6 { 12 } else { 4 }
             },
@@ -293,7 +318,7 @@ impl Cpu {
                 let flags = &mut self.registers.flag_register;
                 flags.set_flag(Flags::ZERO, result == 0);
                 flags.set_flag(Flags::SUBSTRACTION, false);
-                flags.set_flag(Flags::HALF_CARRY, (dst_value & 0x0F + to_add_value & 0x0F + carry_in) > 0x0F);
+                flags.set_flag(Flags::HALF_CARRY, ((dst_value & 0x0F) + (to_add_value & 0x0F) + carry_in) > 0x0F);
                 flags.set_flag(Flags::CARRY, (dst_value as u16 + to_add_value as u16 + carry_in as u16) > 0xFF);
 
                 if reg_num == 6 { 8 } else { 4 }
@@ -584,8 +609,66 @@ impl Cpu {
                 16
             },
 
+            //DI
+            0xF3 => {
+                self.ime = false;
+                4
+            },
+
+            //DE
+            0xFB => {
+                self.pending_ime = true;
+                4
+            },
+
             _ => panic!("Unimplemented opcode {:02X}", opcode)
+        };
+
+        if self.pending_ime {
+            self.pending_ime = false;
+            self.ime = true;
         }
+
+        cylces
+    }
+
+    fn handle_interrupts(&mut self, mmu: &mut Mmu) -> bool {
+        if !self.ime {
+            return false;
+        }
+
+        let ie = mmu.read_byte(0xFFFF);
+        let mut iflag = mmu.read_byte(0xFF0F);
+
+        let pending = ie & iflag;
+        if pending == 0 {
+            return false;
+        }
+
+        self.ime = false;
+
+        let pc_high = (self.program_counter >> 8) as u8;
+        let pc_low = self.program_counter as u8;
+
+        self.stack_pointer -= 1;
+        mmu.write_byte(self.stack_pointer, pc_high);
+        self.stack_pointer -= 1;
+        mmu.write_byte(self.stack_pointer, pc_low);
+
+        let (vector, bit) = match INTERRUPTS
+            .iter()
+            .find(|(bit, _)| pending & (1 << bit) != 0)
+        {
+            Some((bit, vector)) => (*vector, *bit),
+            None => return false,
+        };
+
+        iflag &= !(1 << bit);
+        mmu.write_byte(0xFF0F, iflag);
+
+        self.program_counter = vector;
+
+        true
     }
 
     /// fetches next byte from MMU
