@@ -468,6 +468,44 @@ impl Cpu {
                 16
             },
 
+            //POP
+            0xC1 | 0xD1 | 0xE1 | 0xF1 => {
+                let reg16_num = (opcode >> 4) & 0x03;
+                let reg16 = Reg16::from(reg16_num);
+                
+                let lower_byte = mmu.read_byte(self.stack_pointer) as u16;
+                self.stack_pointer += 1;
+
+                let higher_byte = mmu.read_byte(self.stack_pointer) as u16;
+                self.stack_pointer += 1;
+                
+                let mut val = (higher_byte << 8) | lower_byte;
+                if reg16 == Reg16::AF {
+                    val &= 0xF0;
+                }
+
+                self.registers.write16(&reg16, val);
+            
+                12
+            },
+            
+            //PUSH
+            0xC5 | 0xD5 | 0xE5 | 0xF5 => {
+                let reg16_num = (opcode >> 4) & 0x03;
+                let reg16 = Reg16::from(reg16_num);
+
+                let val = self.registers.read16(&reg16);
+                
+                self.stack_pointer -= 1;
+                let higher_byte = (val >> 8) as u8;
+                mmu.write_byte(self.stack_pointer, higher_byte);
+
+                self.stack_pointer -= 1;
+                let lower_byte = (val as u8) & 0xFF;
+                mmu.write_byte(self.stack_pointer, lower_byte);
+            
+                16
+            },
 
             _ => panic!("Unimplemented opcode {:02X}", opcode)
         }
