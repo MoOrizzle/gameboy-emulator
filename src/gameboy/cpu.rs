@@ -152,7 +152,7 @@ impl Cpu {
             //INC Reg8
             0x04 | 0x0C | 0x14 | 0x1C | 0x24 | 0x2C | 0x3C => {
                 let reg = Reg8::from((opcode >> 3) & 0x07);
-                
+
                 let val = self.registers.read8(&reg);
                 let result = val.wrapping_add(1);
                 self.registers.write8(&reg, result);
@@ -488,7 +488,7 @@ impl Cpu {
                 if !condition {
                     return 12;
                 }
-
+                
                 let low_byte = self.fetch_byte(mmu) as u16;
                 let high_byte = self.fetch_byte(mmu) as u16;
 
@@ -529,6 +529,14 @@ impl Cpu {
         val
     }
 
+    fn set_rotate_register_flags(&mut self, result: u8, pushed_out: u8) {
+        let flags = &mut self.registers.flag_register;
+        flags.set_flag(Flags::ZERO, result == 0);
+        flags.set_flag(Flags::SUBSTRACTION, false);
+        flags.set_flag(Flags::HALF_CARRY, false);
+        flags.set_flag(Flags::CARRY, pushed_out == 1); 
+    }
+
     fn handle_prefixed(&mut self, prefixed_opcode: u8, mmu: &mut Mmu) -> u8 {
 
         let destination_num = prefixed_opcode & 0x07;
@@ -542,135 +550,67 @@ impl Cpu {
             Destination::Register(ref reg) => self.registers.read8(reg)
         };
 
-        match prefixed_opcode {
+        let result: u8 = match prefixed_opcode {
             //RLC r8 | [HL]
             0x00..=0x07 => {
                 let pushed_out = (dst_value & 0x80) >> 7;
                 let result = dst_value.rotate_left(1);
+                self.set_rotate_register_flags(result, pushed_out);
 
-                match destination {
-                    Destination::HlIndirect => mmu.write_byte(self.registers.hl(), result),
-                    Destination::Register(reg) => self.registers.write8(&reg, result),
-                };
-
-                let flags = &mut self.registers.flag_register;
-                flags.set_flag(Flags::ZERO, result == 0);
-                flags.set_flag(Flags::SUBSTRACTION, false);
-                flags.set_flag(Flags::HALF_CARRY, false);
-                flags.set_flag(Flags::CARRY, pushed_out == 1);
-
-                if destination_num == 6 { 16 } else { 8 }
+                result
             },
 
             //RRC r8 | [HL]
             0x08..=0x0F =>  {
                 let pushed_out = dst_value & 1;
                 let result = dst_value.rotate_right(1);
+                self.set_rotate_register_flags(result, pushed_out);
 
-                match destination {
-                    Destination::HlIndirect => mmu.write_byte(self.registers.hl(), result),
-                    Destination::Register(reg) => self.registers.write8(&reg, result),
-                };
-
-                let flags = &mut self.registers.flag_register;
-                flags.set_flag(Flags::ZERO, result == 0);
-                flags.set_flag(Flags::SUBSTRACTION, false);
-                flags.set_flag(Flags::HALF_CARRY, false);
-                flags.set_flag(Flags::CARRY, pushed_out == 1);
-
-                if destination_num == 6 { 16 } else { 8 }
+                result
             },
 
             //RL r8 | [HL]
             0x10..=0x17 => {
                 let pushed_out = (dst_value & 0x80) >> 7;
-
                 let carry_flag = self.registers.flag_register.get_flag(Flags::CARRY);
                 let result = (dst_value << 1) | carry_flag;
+                self.set_rotate_register_flags(result, pushed_out);
 
-                match destination {
-                    Destination::HlIndirect => mmu.write_byte(self.registers.hl(), result),
-                    Destination::Register(reg) => self.registers.write8(&reg, result),
-                };
-                
-                let flags = &mut self.registers.flag_register;
-                flags.set_flag(Flags::ZERO, result == 0);
-                flags.set_flag(Flags::SUBSTRACTION, false);
-                flags.set_flag(Flags::HALF_CARRY, false);
-                flags.set_flag(Flags::CARRY, pushed_out == 1);
-
-                if destination_num == 6 { 16 } else { 8 }
+                result
             },
 
             //RR r8 | [HL]
             0x18..=0x1F => {
                 let pushed_out = dst_value & 1;
-                
                 let carry_flag = self.registers.flag_register.get_flag(Flags::CARRY);
                 let result = (dst_value >> 1) | (carry_flag << 7);
+                self.set_rotate_register_flags(result, pushed_out);
 
-                match destination {
-                    Destination::HlIndirect => mmu.write_byte(self.registers.hl(), result),
-                    Destination::Register(reg) => self.registers.write8(&reg, result),
-                };
-                
-                let flags = &mut self.registers.flag_register;
-                flags.set_flag(Flags::ZERO, result == 0);
-                flags.set_flag(Flags::SUBSTRACTION, false);
-                flags.set_flag(Flags::HALF_CARRY, false);
-                flags.set_flag(Flags::CARRY, pushed_out == 1);
-
-                if destination_num == 6 { 16 } else { 8 }
+                result
             },
 
             //SLA r8 | [HL]
             0x20..=0x27 => {
                 let pushed_out = (dst_value & 0x80) >> 7;
                 let result = dst_value << 1;
+                self.set_rotate_register_flags(result, pushed_out);
 
-                match destination {
-                    Destination::HlIndirect => mmu.write_byte(self.registers.hl(), result),
-                    Destination::Register(reg) => self.registers.write8(&reg, result),
-                };
-                
-                let flags = &mut self.registers.flag_register;
-                flags.set_flag(Flags::ZERO, result == 0);
-                flags.set_flag(Flags::SUBSTRACTION, false);
-                flags.set_flag(Flags::HALF_CARRY, false);
-                flags.set_flag(Flags::CARRY, pushed_out == 1);
-
-                if destination_num == 6 { 16 } else { 8 }
+                result
             },
 
             //SRA r8 | [HL]
             0x28..=0x2F => {
                 let pushed_out = dst_value & 1;
-
                 let highest_bit = dst_value & 0x80;
                 let result = (dst_value >> 1) | highest_bit;
+                self.set_rotate_register_flags(result, pushed_out);
 
-                match destination {
-                    Destination::HlIndirect => mmu.write_byte(self.registers.hl(), result),
-                    Destination::Register(reg) => self.registers.write8(&reg, result),
-                };
-                
-                let flags = &mut self.registers.flag_register;
-                flags.set_flag(Flags::ZERO, result == 0);
-                flags.set_flag(Flags::SUBSTRACTION, false);
-                flags.set_flag(Flags::HALF_CARRY, false);
-                flags.set_flag(Flags::CARRY, pushed_out == 1);
-
-                if destination_num == 6 { 16 } else { 8 }
+                result
             },
 
             //SWAP r8 | [HL] //TODO
             0x30..=0x37 => {
                 let result = ((dst_value & 0x0F) << 4) | ((dst_value & 0xF0) >> 4);
-
-                match destination {
-                    Destination::HlIndirect => mmu.write_byte(self.registers.hl(), result),
-                    Destination::Register(reg) => self.registers.write8(&reg, result),
-                };
 
                 let flags = &mut self.registers.flag_register;
                 flags.set_flag(Flags::ZERO, result == 0);
@@ -678,26 +618,16 @@ impl Cpu {
                 flags.set_flag(Flags::HALF_CARRY, false);
                 flags.set_flag(Flags::CARRY, false);
 
-                if prefixed_opcode == 0x36 { 16 } else { 8 }
+                result
             },
 
             //SRL r8 | [HL]
             0x38..=0x3F => {
                 let pushed_out = dst_value & 1;
                 let result = dst_value >> 1;
+                self.set_rotate_register_flags(result, pushed_out);
 
-                match destination {
-                    Destination::HlIndirect => mmu.write_byte(self.registers.hl(), result),
-                    Destination::Register(reg) => self.registers.write8(&reg, result),
-                };
-                
-                let flags = &mut self.registers.flag_register;
-                flags.set_flag(Flags::ZERO, result == 0);
-                flags.set_flag(Flags::SUBSTRACTION, false);
-                flags.set_flag(Flags::HALF_CARRY, false);
-                flags.set_flag(Flags::CARRY, pushed_out == 1);
-
-                if destination_num == 6 { 16 } else { 8 }
+                result
             },
 
             //BIT u3 r8 | [HL]
@@ -710,7 +640,7 @@ impl Cpu {
                 flags.set_flag(Flags::SUBSTRACTION, false);
                 flags.set_flag(Flags::HALF_CARRY, true);
 
-                if destination_num == 6 { 12 } else { 8 }
+                result
             },
 
             //RES | SET u3 r8 | [HL]
@@ -724,13 +654,21 @@ impl Cpu {
                     _ => dst_value | bit_mask
                 };
 
-                match destination {
-                    Destination::HlIndirect => mmu.write_byte(self.registers.hl(), result),
-                    Destination::Register(ref reg) => self.registers.write8(reg, result)
-                }
-
-                if destination_num == 6 { 16 } else { 8 }
+                result
             }
+        };
+
+        let bit_op_range = 0x40..=0x7F;
+        if bit_op_range.contains(&prefixed_opcode) {
+            return if destination_num == 6 { 12 } else { 8 }
         }
+        
+        match destination {
+            Destination::HlIndirect => mmu.write_byte(self.registers.hl(), result),
+            Destination::Register(ref reg) => self.registers.write8(reg, result)
+        }
+        
+        if destination_num == 6 { 12 } else { 8 }
+        
     }
 }
