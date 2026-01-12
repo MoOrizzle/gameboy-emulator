@@ -150,69 +150,42 @@ impl Cpu {
                 4
             },
             
-            //INC Reg8
-            0x04 | 0x0C | 0x14 | 0x1C | 0x24 | 0x2C | 0x3C => {
-                let reg = Reg8::from((opcode >> 3) & 0x07);
+            //INC r8 | HL
+            0x04 | 0x0C | 0x14 | 0x1C | 0x24 | 0x2C | 0x34 | 0x3C |
+            //DEC r8 | HL 
+            0x05 | 0x0D | 0x15 | 0x1D | 0x25 | 0x2D | 0x35 | 0x3D => {
+                let destination_num = (opcode >> 3) & 0x07;
 
-                let val = self.registers.read8(&reg);
-                let result = val.wrapping_add(1);
-                self.registers.write8(&reg, result);
+                let destination = match destination_num {
+                    6 => Operand8::IndirectHL,
+                    _ => Operand8::Register(Reg8::from(destination_num))
+                };
+
+                let val = match destination {
+                    Operand8::Register(ref reg) => self.registers.read8(reg),
+                    Operand8::IndirectHL => mmu.read_byte(self.registers.read16(&Reg16::HL)),
+                    Operand8::Imm8 => unreachable!(), //immediate data is not used
+                };
+
+                let is_inc = (opcode & 0x01) == 0;
+                let result = match is_inc {
+                    true  => val.wrapping_add(1),
+                    false => val.wrapping_sub(1)
+                };
+
+                match destination {
+                    Operand8::Register(ref reg) => self.registers.write8(reg, result),
+                    Operand8::IndirectHL => mmu.write_byte(self.registers.read16(&Reg16::HL), result),
+                    Operand8::Imm8 => unreachable!(), //immediate data is not used
+                }
 
                 let flags = &mut self.registers.flag_register;
                 flags.set_flag(Flags::ZERO, result == 0);
                 flags.set_flag(Flags::SUBSTRACTION, false);
                 flags.set_flag(Flags::HALF_CARRY, (val & 0x0F) == 0x0F);
                 
-                4
+                if destination_num == 6 { 12 } else { 4 }
             },
-
-            //INC HL
-            0x34 => {
-                let addr = self.registers.read16(&Reg16::HL);
-
-                let val = mmu.read_byte(addr);
-                let result = val.wrapping_add(1);
-                mmu.write_byte(addr, result);
-
-                let flags = &mut self.registers.flag_register;
-                flags.set_flag(Flags::ZERO, result == 0);
-                flags.set_flag(Flags::SUBSTRACTION, false);
-                flags.set_flag(Flags::HALF_CARRY, (val & 0x0F) == 0x0F);
-                
-                12
-            },
-
-            //DEC Reg8
-            0x05 | 0x0D | 0x15 | 0x1D | 0x25 | 0x2D | 0x3D => {
-                let reg = Reg8::from(((opcode - 1) >> 3) & 0x07);
-
-                let val = self.registers.read8(&reg);
-                let result = val.wrapping_sub(1);
-                self.registers.write8(&reg, result);
-
-                let flags = &mut self.registers.flag_register;
-                flags.set_flag(Flags::ZERO, result == 0);
-                flags.set_flag(Flags::SUBSTRACTION, true);
-                flags.set_flag(Flags::HALF_CARRY, (val & 0x0F) == 0x00);
-
-                4
-            },
-
-            //DEC HL
-            0x35 => {
-                let addr = self.registers.read16(&Reg16::HL);
-
-                let val: u8 = mmu.read_byte(addr);
-                let result = val.wrapping_sub(1);
-                mmu.write_byte(addr, result);
-                
-                let flags = &mut self.registers.flag_register;
-                flags.set_flag(Flags::ZERO, result == 0);
-                flags.set_flag(Flags::SUBSTRACTION, true);
-                flags.set_flag(Flags::HALF_CARRY, (val & 0x0F) == 0x00);
-
-                12
-            }
 
             //LD r n8
             0x06 | 0x0E | 0x16 | 0x1E | 0x26 | 0x2E | 0x3E => {
