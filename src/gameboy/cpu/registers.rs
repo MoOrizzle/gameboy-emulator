@@ -1,7 +1,4 @@
-use strum::IntoEnumIterator;
-use strum_macros::EnumIter;
-
-#[derive(PartialEq, EnumIter)]
+#[derive(PartialEq)]
 pub enum Reg8 {
     B = 0, 
     C = 1, 
@@ -14,13 +11,20 @@ pub enum Reg8 {
 
 impl Reg8 {
     pub fn from(reg: u8) -> Reg8 {
-        Reg8::iter()
-            .get(reg as usize)
-            .expect("Unknown Reg8 Register!")
+        match reg {
+            0 => Reg8::B, 
+            1 => Reg8::C, 
+            2 => Reg8::D,
+            3 => Reg8::E, 
+            4 => Reg8::H, 
+            5 => Reg8::L,  
+            7 => Reg8::A,
+            _ => panic!("Unknown Reg8 Register!")
+        }
     }
 }
 
-#[derive(PartialEq, EnumIter)]
+#[derive(PartialEq)]
 pub enum Reg16 {
     BC = 0, 
     DE = 1, 
@@ -30,9 +34,13 @@ pub enum Reg16 {
 
 impl Reg16 {
     pub fn from(reg: u8) -> Reg16 {
-        Reg16::iter()
-            .get(reg as usize)
-            .expect("Unknown Reg16 Register!")
+        match reg {
+            0 => Reg16::BC, 
+            1 => Reg16::DE, 
+            2 => Reg16::HL,
+            3 => Reg16::AF,
+            _ => panic!("Unknown Reg16 Register!")
+        }
     }
 }
 
