@@ -765,6 +765,25 @@ impl Cpu {
                 
                 self.stack_pointer -= 2;
                 mmu.write16(self.stack_pointer, val);
+            
+                16
+            },
+
+            //RST vec
+            0xC7 | 0xD7 | 0xE7 | 0xF7 | 0xCF | 0xDF | 0xEF | 0xFF => {
+                let vec = opcode & 0x38;
+
+                let pc_high = (self.program_counter >> 8) as u8;
+                let pc_low = (self.program_counter as u8) & 0xFF;
+
+                self.stack_pointer -= 1;
+                mmu.write8(self.stack_pointer, pc_high);
+
+                self.stack_pointer -= 1;
+                mmu.write8(self.stack_pointer, pc_low);
+
+                self.program_counter = vec as u16;
+
                 16
             },
 
