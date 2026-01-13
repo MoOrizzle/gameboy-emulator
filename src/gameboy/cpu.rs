@@ -54,8 +54,8 @@ impl Cpu {
         }
 
         if self.halted {
-            let ie = mmu.read_byte(0xFFFF);
-            let iflag = mmu.read_byte(0xFF0F);
+            let ie = mmu.read8(0xFFFF);
+            let iflag = mmu.read8(0xFF0F);
             if ie & iflag != 0 {
                 self.halted = false;
             }
@@ -186,7 +186,7 @@ impl Cpu {
 
                 let val = match destination {
                     Operand8::Register(ref reg) => self.registers.read8(reg),
-                    Operand8::IndirectHL => mmu.read_byte(self.registers.read16(&Reg16::HL)),
+                    Operand8::IndirectHL => mmu.read8(self.registers.read16(&Reg16::HL)),
                     Operand8::Imm8 => unreachable!(), //immediate data is not used
                 };
 
@@ -198,7 +198,7 @@ impl Cpu {
 
                 match destination {
                     Operand8::Register(ref reg) => self.registers.write8(reg, result),
-                    Operand8::IndirectHL => mmu.write_byte(self.registers.read16(&Reg16::HL), result),
+                    Operand8::IndirectHL => mmu.write8(self.registers.read16(&Reg16::HL), result),
                     Operand8::Imm8 => unreachable!(), //immediate data is not used
                 }
 
@@ -225,7 +225,7 @@ impl Cpu {
             //LD HL n8
             0x36 => {
                 let val = self.fetch_byte(mmu);
-                 mmu.write_byte(self.registers.read16(&Reg16::HL), val);
+                 mmu.write8(self.registers.read16(&Reg16::HL), val);
                 
                 12
             }
@@ -242,7 +242,7 @@ impl Cpu {
                 let src = Reg8::from(opcode & 0x07);
 
                 let val = self.registers.read8(&src);
-                mmu.write_byte(self.registers.read16(&Reg16::HL), val);
+                mmu.write8(self.registers.read16(&Reg16::HL), val);
 
                 8
             },
@@ -251,7 +251,7 @@ impl Cpu {
             0x70 | 0x71 | 0x72 | 0x73 | 0x74 | 0x75 | 0x77 => {
                 let dst = Reg8::from((opcode >> 3) & 0x07);
 
-                let val = mmu.read_byte(self.registers.read16(&Reg16::HL));
+                let val = mmu.read8(self.registers.read16(&Reg16::HL));
                 self.registers.write8(&dst, val);
 
                 8
@@ -278,7 +278,7 @@ impl Cpu {
                 let reg_num = opcode & 0x07;
 
                 let to_add_value = match opcode {
-                    0x86 => mmu.read_byte(self.registers.read16(&Reg16::HL)),
+                    0x86 => mmu.read8(self.registers.read16(&Reg16::HL)),
                     0xC6 => self.fetch_byte(mmu),
                     _ => self.registers.read8(&Reg8::from(reg_num))
                 };
@@ -303,7 +303,7 @@ impl Cpu {
                 let reg_num = opcode & 0x07;
 
                 let to_add_value = match opcode {
-                    0x8E => mmu.read_byte(self.registers.read16(&Reg16::HL)),
+                    0x8E => mmu.read8(self.registers.read16(&Reg16::HL)),
                     0xCE => self.fetch_byte(mmu),
                     _ => self.registers.read8(&Reg8::from(reg_num))
                 };
@@ -332,7 +332,7 @@ impl Cpu {
                 let reg_num = opcode & 0x07;
 
                 let to_sub_value = match opcode {
-                    0x9E => mmu.read_byte(self.registers.read16(&Reg16::HL)),
+                    0x9E => mmu.read8(self.registers.read16(&Reg16::HL)),
                     0xDE => self.fetch_byte(mmu),
                     _ => self.registers.read8(&Reg8::from(reg_num))
                 };
@@ -363,7 +363,7 @@ impl Cpu {
                 let reg_num = opcode & 0x07;
 
                 let to_sub_value = match opcode {
-                    0x96 | 0xBE => mmu.read_byte(self.registers.read16(&Reg16::HL)),
+                    0x96 | 0xBE => mmu.read8(self.registers.read16(&Reg16::HL)),
                     0xD6 | 0xFE => self.fetch_byte(mmu),
                     _ => self.registers.read8(&Reg8::from(reg_num))
                 };
@@ -391,7 +391,7 @@ impl Cpu {
                 let reg_num = opcode & 0x07;
 
                 let to_and_value = match opcode {
-                    0xA6 => mmu.read_byte(self.registers.read16(&Reg16::HL)),
+                    0xA6 => mmu.read8(self.registers.read16(&Reg16::HL)),
                     0xE6 => self.fetch_byte(mmu),
                     _ => self.registers.read8(&Reg8::from(reg_num))
                 };
@@ -416,7 +416,7 @@ impl Cpu {
                 let reg_num = opcode & 0x07;
 
                 let to_xor_value = match opcode {
-                    0xAE => mmu.read_byte(self.registers.read16(&Reg16::HL)),
+                    0xAE => mmu.read8(self.registers.read16(&Reg16::HL)),
                     0xEE => self.fetch_byte(mmu),
                     _ => self.registers.read8(&Reg8::from(reg_num))
                 };
@@ -441,7 +441,7 @@ impl Cpu {
                 let reg_num = opcode & 0x07;
 
                 let to_or_value = match opcode {
-                    0xB6 => mmu.read_byte(self.registers.read16(&Reg16::HL)),
+                    0xB6 => mmu.read8(self.registers.read16(&Reg16::HL)),
                     0xF6 => self.fetch_byte(mmu),
                     _ => self.registers.read8(&Reg8::from(reg_num))
                 };
@@ -515,10 +515,10 @@ impl Cpu {
                     return 8;
                 }
 
-                let lower_byte = mmu.read_byte(self.stack_pointer) as u16;
+                let lower_byte = mmu.read8(self.stack_pointer) as u16;
                 self.stack_pointer += 1;
 
-                let higher_byte = mmu.read_byte(self.stack_pointer) as u16;
+                let higher_byte = mmu.read8(self.stack_pointer) as u16;
                 self.stack_pointer += 1;
 
                 let jmp_addr = (higher_byte << 8) | lower_byte;
@@ -560,10 +560,10 @@ impl Cpu {
                 let pc_low = (self.program_counter as u8) & 0xFF;
 
                 self.stack_pointer -= 1;
-                mmu.write_byte(self.stack_pointer, pc_high);
+                mmu.write8(self.stack_pointer, pc_high);
 
                 self.stack_pointer -= 1;
-                mmu.write_byte(self.stack_pointer, pc_low);
+                mmu.write8(self.stack_pointer, pc_low);
                 
                 self.program_counter = jmp_addr;
 
@@ -572,16 +572,11 @@ impl Cpu {
 
             //POP
             0xC1 | 0xD1 | 0xE1 | 0xF1 => {
-                let reg16_num = (opcode >> 4) & 0x03;
-                let reg16 = Reg16::from(reg16_num);
-                
-                let lower_byte = mmu.read_byte(self.stack_pointer) as u16;
-                self.stack_pointer += 1;
+                let reg16 = Reg16::from((opcode >> 4) & 0x03);
+                let mut val = mmu.read16(self.stack_pointer);
 
-                let higher_byte = mmu.read_byte(self.stack_pointer) as u16;
-                self.stack_pointer += 1;
-                
-                let mut val = (higher_byte << 8) | lower_byte;
+                self.stack_pointer += 2;
+
                 if reg16 == Reg16::AF {
                     val &= 0xF0;
                 }
@@ -593,19 +588,11 @@ impl Cpu {
             
             //PUSH
             0xC5 | 0xD5 | 0xE5 | 0xF5 => {
-                let reg16_num = (opcode >> 4) & 0x03;
-                let reg16 = Reg16::from(reg16_num);
-
+                let reg16 = Reg16::from((opcode >> 4) & 0x03);
                 let val = self.registers.read16(&reg16);
                 
-                self.stack_pointer -= 1;
-                let higher_byte = (val >> 8) as u8;
-                mmu.write_byte(self.stack_pointer, higher_byte);
-
-                self.stack_pointer -= 1;
-                let lower_byte = (val as u8) & 0xFF;
-                mmu.write_byte(self.stack_pointer, lower_byte);
-            
+                self.stack_pointer -= 2;
+                mmu.write16(self.stack_pointer, val);
                 16
             },
 
@@ -637,8 +624,8 @@ impl Cpu {
             return false;
         }
 
-        let ie = mmu.read_byte(0xFFFF);
-        let mut iflag = mmu.read_byte(0xFF0F);
+        let ie = mmu.read8(0xFFFF);
+        let mut iflag = mmu.read8(0xFF0F);
 
         let pending = ie & iflag;
         if pending == 0 {
@@ -651,9 +638,9 @@ impl Cpu {
         let pc_low = self.program_counter as u8;
 
         self.stack_pointer -= 1;
-        mmu.write_byte(self.stack_pointer, pc_high);
+        mmu.write8(self.stack_pointer, pc_high);
         self.stack_pointer -= 1;
-        mmu.write_byte(self.stack_pointer, pc_low);
+        mmu.write8(self.stack_pointer, pc_low);
 
         let (vector, bit) = match INTERRUPTS
             .iter()
@@ -664,7 +651,7 @@ impl Cpu {
         };
 
         iflag &= !(1 << bit);
-        mmu.write_byte(0xFF0F, iflag);
+        mmu.write8(0xFF0F, iflag);
 
         self.program_counter = vector;
 
@@ -675,7 +662,7 @@ impl Cpu {
     /// 
     /// increments program counter by 1
     fn fetch_byte(&mut self, mmu: &Mmu) -> u8 {
-        let val = mmu.read_byte(self.program_counter);
+        let val = mmu.read8(self.program_counter);
         self.program_counter += 1;
 
         val
@@ -708,7 +695,7 @@ impl Cpu {
         };
 
         let dst_value = match destination {
-            Operand8::IndirectHL => mmu.read_byte(self.registers.read16(&Reg16::HL)),
+            Operand8::IndirectHL => mmu.read8(self.registers.read16(&Reg16::HL)),
             Operand8::Register(ref reg) => self.registers.read8(reg),
             Operand8::Imm8 => unreachable!(), //immediate data in the prefixed opcode space is not used
         };
@@ -827,7 +814,7 @@ impl Cpu {
         }
         
         match destination {
-            Operand8::IndirectHL => mmu.write_byte(self.registers.read16(&Reg16::HL), result),
+            Operand8::IndirectHL => mmu.write8(self.registers.read16(&Reg16::HL), result),
             Operand8::Register(ref reg) => self.registers.write8(reg, result),
             Operand8::Imm8 => unreachable!(), //immediate data in the prefixed opcode space is not used
         }
