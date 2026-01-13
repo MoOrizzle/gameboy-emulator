@@ -300,6 +300,146 @@ impl Cpu {
                 4
             },
 
+            //LD r16 n16
+            0x01 | 0x11 | 0x21 => {
+                let reg16 = Reg16::from((opcode >> 4) & 0x03);
+
+                let word = self.fetch_word(mmu);
+                self.registers.write16(&reg16, word);
+
+                12
+            },
+
+            //LD SP n16
+            0x31 => {
+                let word = self.fetch_word(mmu);
+                self.stack_pointer = word;
+
+                12
+            },
+
+            //LD [r16] A
+            0x02 | 0x12 => {
+                let val = self.registers.read8(&Reg8::A);
+
+                let reg16 = Reg16::from((opcode >> 4) & 0x03);
+                let addr = self.registers.read16(&reg16);
+
+                mmu.write8(addr, val);
+
+                8
+            },
+
+            //LD [HL+] | [HL-] A
+            0x22 | 0x32 => {
+                let val = self.registers.read8(&Reg8::A);
+
+                let addr = self.registers.read16(&Reg16::HL);
+
+                mmu.write8(addr, val);
+
+                let write_back = if opcode == 0x22 { addr.wrapping_add(1) } else { addr.wrapping_sub(1) };
+                self.registers.write16(&Reg16::HL, write_back);
+
+                8
+            },
+
+            //LD A [r16]
+            0x0A | 0x1A => {
+                let reg16 = Reg16::from((opcode >> 4) & 0x03);
+                let addr = self.registers.read16(&reg16);
+
+                let val = mmu.read8(addr);
+
+                self.registers.write8(&Reg8::A, val);
+
+                8
+            },
+
+            //LD A [HL+] | [HL-]
+            0x2A | 0x3A => {
+                let addr = self.registers.read16(&Reg16::HL);
+
+                let val = mmu.read8(addr);
+
+                self.registers.write8(&Reg8::A, val);
+
+                let write_back = if opcode == 0x2A { addr.wrapping_add(1) } else { addr.wrapping_sub(1) };
+                self.registers.write16(&Reg16::HL, write_back);
+
+                8
+            },
+
+            //LDH [a8] A
+            0xE0 => {
+                let a8 = self.fetch_byte(mmu);
+                let addr = 0xFF00 | (a8 as u16);
+
+                let val = self.registers.read8(&Reg8::A);
+
+                mmu.write8(addr, val);
+
+                12
+            },
+
+            //LDH A [a8]
+            0xF0 => {
+                let a8 = self.fetch_byte(mmu);
+                let addr = 0xFF00 | (a8 as u16);
+
+                let val = mmu.read8(addr);
+
+                self.registers.write8(&Reg8::A, val);
+
+                12
+            },
+
+            //LDH [C] A
+            0xE2 => {
+                let reg_c_val = self.registers.read8(&Reg8::C);
+                let addr = 0xFF00 | (reg_c_val as u16);
+
+                let val = self.registers.read8(&Reg8::A);
+
+                mmu.write8(addr, val);
+
+                8
+            },
+
+            //LDH A [C]
+            0xF2 => {
+                let reg_c_val = self.registers.read8(&Reg8::C);
+                let addr = 0xFF00 | (reg_c_val as u16);
+
+                let val = mmu.read8(addr);
+
+                self.registers.write8(&Reg8::A, val);
+                
+                8
+            },
+
+            //LD [a16] A
+            0xEA => {
+                let addr = self.fetch_word(mmu);
+
+                let val = self.registers.read8(&Reg8::A);
+
+                mmu.write8(addr, val);
+                
+                16
+            },
+
+            //LD A [a16]
+            0xFA => {
+                let addr = self.fetch_word(mmu);
+
+                let val = mmu.read8(addr);
+
+                self.registers.write8(&Reg8::A, val);
+
+                16
+            },
+
             //*ALU OPERATIONS*
 
             //ADD A r8 | [HL] | n8
