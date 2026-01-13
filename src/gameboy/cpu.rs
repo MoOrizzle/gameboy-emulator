@@ -212,6 +212,38 @@ impl Cpu {
                 if destination_num == 6 { 12 } else { 4 }
             },
 
+            //INC r16 | SP
+            0x03 | 0x13 | 0x23 |
+            //DEC r16 | SP
+            0x0B | 0x1B | 0x2B => {
+                let destination_num = (opcode >> 4) & 0x07;
+                let reg16 = Reg16::from(destination_num);
+                
+                let val = self.registers.read16(&reg16);
+
+                let is_inc = ((opcode >> 3) & 0x01) == 0;
+                let result = match is_inc {
+                    true  => val.wrapping_add(1),
+                    false => val.wrapping_sub(1)
+                };
+
+                self.registers.write16(&reg16, result);
+                
+                8
+            },
+
+            //INC SP
+            0x33 => {
+                self.stack_pointer = self.stack_pointer.wrapping_add(1);
+                8
+            },
+
+            //DEC SP
+            0x3B => {
+                self.stack_pointer = self.stack_pointer.wrapping_sub(1);
+                8
+            },
+
             //LD r n8
             0x06 | 0x0E | 0x16 | 0x1E | 0x26 | 0x2E | 0x3E => {
                 let reg = Reg8::from((opcode >> 3) & 0x07);
