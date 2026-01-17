@@ -6,7 +6,6 @@ use registers::{Flags, Reg8, Reg16, Registers};
 enum Operand8 {
     Register(Reg8),
     IndirectHL,
-    Imm8
 }
 
 const INTERRUPTS: [(u8, u16); 5] = [
@@ -187,7 +186,6 @@ impl Cpu {
                 let val = match destination {
                     Operand8::Register(ref reg) => self.registers.read8(reg),
                     Operand8::IndirectHL => mmu.read8(self.registers.read16(&Reg16::HL)),
-                    Operand8::Imm8 => unreachable!(), //immediate data is not used
                 };
 
                 let is_inc = (opcode & 0x01) == 0;
@@ -199,7 +197,6 @@ impl Cpu {
                 match destination {
                     Operand8::Register(ref reg) => self.registers.write8(reg, result),
                     Operand8::IndirectHL => mmu.write8(self.registers.read16(&Reg16::HL), result),
-                    Operand8::Imm8 => unreachable!(), //immediate data is not used
                 }
 
                 let flags = &mut self.registers.flag_register;
@@ -888,7 +885,6 @@ impl Cpu {
         let dst_value = match destination {
             Operand8::IndirectHL => mmu.read8(self.registers.read16(&Reg16::HL)),
             Operand8::Register(ref reg) => self.registers.read8(reg),
-            Operand8::Imm8 => unreachable!(), //immediate data in the prefixed opcode space is not used
         };
 
         let result: u8 = match prefixed_opcode {
@@ -1007,7 +1003,6 @@ impl Cpu {
         match destination {
             Operand8::IndirectHL => mmu.write8(self.registers.read16(&Reg16::HL), result),
             Operand8::Register(ref reg) => self.registers.write8(reg, result),
-            Operand8::Imm8 => unreachable!(), //immediate data in the prefixed opcode space is not used
         }
         
         if destination_num == 6 { 12 } else { 8 }
