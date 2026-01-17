@@ -137,7 +137,7 @@ impl FlagsRegister {
         if value { self.flags |= flag } else { self.flags &= !flag }
     }
 
-    pub fn get_flag(&mut self, flag: Flags) -> u8 {
-        if self.flags & flag as u8 != 0 { 1 } else { 0 }
+    pub fn get_flag(&self, flag: Flags) -> bool {
+        self.flags & flag as u8 != 0
     }
 }

@@ -110,7 +110,7 @@ impl Cpu {
                 let dst_register = Reg8::A;
                 let dst_value = self.registers.read8(&dst_register);
 
-                let carry_flag = self.registers.flag_register.get_flag(Flags::CARRY);
+                let carry_flag = self.registers.flag_register.get_flag(Flags::CARRY) as u8;
                 let pushed_out = (dst_value & 0x80) >> 7;
                 let result = (dst_value << 1) | carry_flag;
 
@@ -130,7 +130,7 @@ impl Cpu {
                 let dst_register = Reg8::A;
                 let dst_value = self.registers.read8(&dst_register);
 
-                let carry_flag = self.registers.flag_register.get_flag(Flags::CARRY);
+                let carry_flag = self.registers.flag_register.get_flag(Flags::CARRY) as u8;
                 let pushed_out = dst_value & 1;
                 let result = (dst_value >> 1) | (carry_flag << 7);
 
@@ -147,22 +147,22 @@ impl Cpu {
 
             //JR
             0x18 | 0x20 | 0x28 | 0x30 | 0x38 => {
-                let flags = &mut self.registers.flag_register;
+                let flags = &self.registers.flag_register;
                 let condition = match opcode {
                     //JR e8
                     0x18 => true,
                     //JR NZ e8
-                    0x20 => flags.get_flag(Flags::ZERO) == 0,
+                    0x20 => flags.get_flag(Flags::ZERO),
                     //JR Z e8
-                    0x28 => flags.get_flag(Flags::ZERO) == 1,
+                    0x28 => flags.get_flag(Flags::ZERO),
                     //JR NC e8
-                    0x30 => flags.get_flag(Flags::CARRY) == 0,
+                    0x30 => flags.get_flag(Flags::CARRY),
                     //JR C e8
-                    0x38 => flags.get_flag(Flags::CARRY) == 1,
+                    0x38 => flags.get_flag(Flags::CARRY),
                     
                     _ => unreachable!()
                 };
-                
+
                 if !condition {
                     return 8;
                 }
@@ -261,7 +261,7 @@ impl Cpu {
                 
                 12
             }
-            
+
             //HALT
             0x76 => {
                 self.halted = true;
@@ -293,7 +293,7 @@ impl Cpu {
             0x40..=0x7F => {
                 let dst = Reg8::from((opcode >> 3) & 0x07);
                 let src = Reg8::from(opcode & 0x07);
-                
+
                 let val = self.registers.read8(&src);
                 self.registers.write8(&dst, val);
 
@@ -480,7 +480,7 @@ impl Cpu {
                     _ => self.registers.read8(&Reg8::from(reg_num))
                 };
 
-                let carry_in = self.registers.flag_register.get_flag(Flags::CARRY);
+                let carry_in = self.registers.flag_register.get_flag(Flags::CARRY) as u8;
                 let result = dst_value
                     .wrapping_add(to_add_value)
                     .wrapping_add(carry_in);
@@ -509,7 +509,7 @@ impl Cpu {
                     _ => self.registers.read8(&Reg8::from(reg_num))
                 };
 
-                let carry_in = self.registers.flag_register.get_flag(Flags::CARRY);
+                let carry_in = self.registers.flag_register.get_flag(Flags::CARRY) as u8;
                 let result = dst_value
                     .wrapping_sub(to_sub_value)
                     .wrapping_sub(carry_in);
@@ -640,22 +640,22 @@ impl Cpu {
             
             //JP
             0xC2 | 0xC3 | 0xCA | 0xD2 | 0xDA => {
-                let flags = &mut self.registers.flag_register;
+                let flags = &self.registers.flag_register;
                 let condition = match opcode {
                     //JP a16
                     0xC3 => true,
                     //JP NZ a16
-                    0xC2 => flags.get_flag(Flags::ZERO) == 0,
+                    0xC2 => flags.get_flag(Flags::ZERO),
                     //JP Z a16
-                    0xCA => flags.get_flag(Flags::ZERO) == 1,
+                    0xCA => flags.get_flag(Flags::ZERO),
                     //JP NC a16
-                    0xD2 => flags.get_flag(Flags::CARRY) == 0,
+                    0xD2 => flags.get_flag(Flags::CARRY),
                     //JP C a16
-                    0xDA => flags.get_flag(Flags::CARRY) == 1,
+                    0xDA => flags.get_flag(Flags::CARRY),
 
                     _ => unreachable!()
                 };
-                
+
                 if !condition {
                     return 12;
                 }
@@ -667,18 +667,18 @@ impl Cpu {
 
             //RET
             0xC0 | 0xC8 | 0xC9 | 0xD0 | 0xD8 | 0xD9 => {
-                let flags = &mut self.registers.flag_register;
+                let flags = &self.registers.flag_register;
                 let condition = match opcode {
                     //RET | RETI
                     0xC9 | 0xD9 => true,
                     //RET NZ
-                    0xC0 => flags.get_flag(Flags::ZERO) == 0,
+                    0xC0 => flags.get_flag(Flags::ZERO),
                     //RET Z
-                    0xC8 => flags.get_flag(Flags::ZERO) == 1,
+                    0xC8 => flags.get_flag(Flags::ZERO),
                     //RET NC
-                    0xD0 => flags.get_flag(Flags::CARRY) == 0,
+                    0xD0 => flags.get_flag(Flags::CARRY),
                     //RET C
-                    0xD8 => flags.get_flag(Flags::CARRY) == 1,
+                    0xD8 => flags.get_flag(Flags::CARRY),
 
                     _ => unreachable!()
                 };
@@ -706,18 +706,18 @@ impl Cpu {
 
             //CALL
             0xC4 | 0xCC | 0xCD | 0xD4 | 0xDC => {
-                let flags = &mut self.registers.flag_register;
+                let flags = &self.registers.flag_register;
                 let condition = match opcode {
                     //CALL a16
                     0xCD => true,
                     //CALL NZ a16
-                    0xC4 => flags.get_flag(Flags::ZERO) == 0,
+                    0xC4 => flags.get_flag(Flags::ZERO),
                     //CALL Z a16
-                    0xCC => flags.get_flag(Flags::ZERO) == 1,
+                    0xCC => flags.get_flag(Flags::ZERO),
                     //CALL NC a16
-                    0xD4 => flags.get_flag(Flags::CARRY) == 0,
+                    0xD4 => flags.get_flag(Flags::CARRY),
                     //CALL C a16
-                    0xDC => flags.get_flag(Flags::CARRY) == 1,
+                    0xDC => flags.get_flag(Flags::CARRY),
 
                     _ => unreachable!()
                 };
@@ -752,7 +752,7 @@ impl Cpu {
                 if reg16 == Reg16::AF {
                     val &= 0xF0;
                 }
-
+                
                 self.registers.write16(&reg16, val);
             
                 12
@@ -822,8 +822,8 @@ impl Cpu {
         if pending == 0 {
             return false;
         }
-
-        self.ime = false;
+            
+            self.ime = false;
 
         let pc_high = (self.program_counter >> 8) as u8;
         let pc_low = self.program_counter as u8;
@@ -913,7 +913,7 @@ impl Cpu {
             //RL r8 | [HL]
             0x10..=0x17 => {
                 let pushed_out = (dst_value & 0x80) >> 7;
-                let carry_flag = self.registers.flag_register.get_flag(Flags::CARRY);
+                let carry_flag = self.registers.flag_register.get_flag(Flags::CARRY) as u8;
                 let result = (dst_value << 1) | carry_flag;
                 self.set_rotate_register_flags(result, pushed_out);
 
@@ -923,7 +923,7 @@ impl Cpu {
             //RR r8 | [HL]
             0x18..=0x1F => {
                 let pushed_out = dst_value & 1;
-                let carry_flag = self.registers.flag_register.get_flag(Flags::CARRY);
+                let carry_flag = self.registers.flag_register.get_flag(Flags::CARRY) as u8;
                 let result = (dst_value >> 1) | (carry_flag << 7);
                 self.set_rotate_register_flags(result, pushed_out);
 
