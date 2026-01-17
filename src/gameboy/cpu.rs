@@ -8,14 +8,6 @@ enum Operand8 {
     IndirectHL,
 }
 
-const INTERRUPTS: [(u8, u16); 5] = [
-    (0, 0x40),
-    (1, 0x48),
-    (2, 0x50),
-    (3, 0x58),
-    (4, 0x60),
-];
-
 pub struct Cpu {
     pub program_counter: u16,
     pub stack_pointer: u16,
@@ -161,7 +153,7 @@ impl Cpu {
                     
                     _ => unreachable!()
                 };
-                
+ 
                 if !condition {
                     return 8;
                 }
@@ -804,35 +796,35 @@ impl Cpu {
         (byte_high << 8) | byte_low
     }
 
-    fn handle_interrupts(&mut self, mmu: &mut Mmu) -> bool {
-        if !self.ime {
-            return false;
-        }
+    pub fn handle_interrupts(&mut self, mmu: &mut Mmu) -> bool {
+        if !self.ime { return false; }
 
         let ie = mmu.read8(0xFFFF);
         let mut iflag = mmu.read8(0xFF0F);
 
         let pending = ie & iflag;
-        if pending == 0 {
-            return false;
-        }
+        if pending == 0 { return false; }
+
+        for i in 0..5 {
+            if pending & (1 << i) == 0 { continue; }
             
             self.ime = false;
 
-        self.push_pc_to_stack(mmu);
+            iflag &= !(1 << i);
+            mmu.write8(0xFF0F, iflag);
+            
+            self.push_pc_to_stack(mmu);
 
-        let (vector, bit) = match INTERRUPTS
-            .iter()
-            .find(|(bit, _)| pending & (1 << bit) != 0)
-        {
-            Some((bit, vector)) => (*vector, *bit),
-            None => return false,
-        };
-
-        iflag &= !(1 << bit);
-        mmu.write8(0xFF0F, iflag);
-
-        self.program_counter = vector;
+            self.program_counter = match i {
+                0 => 0x40, // V-Blank
+                1 => 0x48, // LCD STAT
+                2 => 0x50, // Timer
+                3 => 0x58, // Serial
+                4 => 0x60, // Joypad
+                _ => unreachable!(),
+            };
+            break;
+        }
 
         true
     }
