@@ -161,7 +161,7 @@ impl Cpu {
                     
                     _ => unreachable!()
                 };
-
+                
                 if !condition {
                     return 8;
                 }
@@ -684,14 +684,7 @@ impl Cpu {
                     return 8;
                 }
 
-                let lower_byte = mmu.read8(self.stack_pointer) as u16;
-                self.stack_pointer += 1;
-
-                let higher_byte = mmu.read8(self.stack_pointer) as u16;
-                self.stack_pointer += 1;
-
-                let jmp_addr = (higher_byte << 8) | lower_byte;
-                self.program_counter = jmp_addr;
+                self.program_counter = self.pop_pc_from_stack(mmu);
 
                 //RETI
                 if opcode == 0xD9 {
@@ -725,14 +718,7 @@ impl Cpu {
 
                 let jmp_addr = self.fetch_word(mmu);
 
-                let pc_high = (self.program_counter >> 8) as u8;
-                let pc_low = (self.program_counter as u8) & 0xFF;
-
-                self.stack_pointer -= 1;
-                mmu.write8(self.stack_pointer, pc_high);
-
-                self.stack_pointer -= 1;
-                mmu.write8(self.stack_pointer, pc_low);
+                self.push_pc_to_stack(mmu);
                 
                 self.program_counter = jmp_addr;
 
@@ -744,12 +730,11 @@ impl Cpu {
                 let reg16 = Reg16::from((opcode >> 4) & 0x03);
                 let mut val = mmu.read16(self.stack_pointer);
 
-                self.stack_pointer += 2;
-
                 if reg16 == Reg16::AF {
                     val &= 0xF0;
                 }
                 
+                self.stack_pointer += 2;
                 self.registers.write16(&reg16, val);
             
                 12
@@ -768,17 +753,9 @@ impl Cpu {
 
             //RST vec
             0xC7 | 0xD7 | 0xE7 | 0xF7 | 0xCF | 0xDF | 0xEF | 0xFF => {
+                self.push_pc_to_stack(mmu);
+                
                 let vec = opcode & 0x38;
-
-                let pc_high = (self.program_counter >> 8) as u8;
-                let pc_low = (self.program_counter as u8) & 0xFF;
-
-                self.stack_pointer -= 1;
-                mmu.write8(self.stack_pointer, pc_high);
-
-                self.stack_pointer -= 1;
-                mmu.write8(self.stack_pointer, pc_low);
-
                 self.program_counter = vec as u16;
 
                 16
@@ -807,6 +784,26 @@ impl Cpu {
         cylces
     }
 
+    fn push_pc_to_stack(&mut self, mmu: &mut Mmu) {
+        let pc_high = (self.program_counter >> 8) as u8;
+        let pc_low = (self.program_counter as u8) & 0xFF;
+
+        self.stack_pointer -= 1;
+        mmu.write8(self.stack_pointer, pc_high);
+        self.stack_pointer -= 1;
+        mmu.write8(self.stack_pointer, pc_low);
+    }
+
+    fn pop_pc_from_stack(&mut self, mmu: &mut Mmu) -> u16 {
+        let byte_low = mmu.read8(self.stack_pointer) as u16;
+        self.stack_pointer += 1;
+
+        let byte_high = mmu.read8(self.stack_pointer) as u16;
+        self.stack_pointer += 1;
+
+        (byte_high << 8) | byte_low
+    }
+
     fn handle_interrupts(&mut self, mmu: &mut Mmu) -> bool {
         if !self.ime {
             return false;
@@ -822,13 +819,7 @@ impl Cpu {
             
             self.ime = false;
 
-        let pc_high = (self.program_counter >> 8) as u8;
-        let pc_low = self.program_counter as u8;
-
-        self.stack_pointer -= 1;
-        mmu.write8(self.stack_pointer, pc_high);
-        self.stack_pointer -= 1;
-        mmu.write8(self.stack_pointer, pc_low);
+        self.push_pc_to_stack(mmu);
 
         let (vector, bit) = match INTERRUPTS
             .iter()
