@@ -106,15 +106,15 @@ impl Registers {
     }
 
     pub fn write16(&mut self, reg: &Reg16, value: u16) {
-        let (high_reg, low_reg) = match reg {
-            Reg16::BC => (&mut self.b, &mut self.c),
-            Reg16::DE => (&mut self.d, &mut self.e),
-            Reg16::HL => (&mut self.h, &mut self.l),
-            Reg16::AF => (&mut self.a, &mut self.flag_register.flags)
-        };
+        let high = (value >> 8) as u8;
+        let low  = value as u8;
 
-        *high_reg = (value >> 8) as u8;
-        *low_reg = (value & 0xF0) as u8;
+        match reg {
+            Reg16::BC => { self.b = high; self.c = low; },
+            Reg16::DE => { self.d = high; self.e = low; },
+            Reg16::HL => { self.h = high; self.l = low; },
+            Reg16::AF => { self.a = high; self.flag_register.flags = low & 0xF0; }
+        }
     }
 }
 
