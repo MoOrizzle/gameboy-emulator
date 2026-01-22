@@ -3,6 +3,15 @@ mod registers;
 use super::mmu::Mmu;
 use registers::{Flags, Reg8, Reg16, Registers};
 
+
+pub enum Interrupt {
+    VBlank = 0x40,
+    LCDStat = 0x48,
+    Timer = 0x50,
+    Serial = 0x58,
+    Joypad = 0x60,
+}
+
 enum Operand8 {
     Register(Reg8),
     IndirectHL,

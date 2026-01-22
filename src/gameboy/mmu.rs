@@ -1,3 +1,5 @@
+use super::cpu::Interrupt;
+
 /// struct that represent the Memory Managment Unit (MMU)
 pub struct Mmu {
     rom: Vec<u8>,
@@ -45,4 +47,15 @@ impl Mmu {
         self.write8(addr, lower_byte as u8);
         self.write8(addr + 1, higher_byte as u8);
     }
+
+    pub fn request_interrupt(&mut self, interrupt: Interrupt) {
+        let bit = interrupt as u8;
+        let val = self.read8(0x0F) | 1 << bit;
+        self.write8(0x0F, val);
+    }
+
+    pub fn write_ly(&mut self, value: u8) {
+        self.write8(0x44, value);
+    }
+
 }
