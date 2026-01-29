@@ -1,72 +1,90 @@
-use super::{cpu::Interrupt, mmu::Mmu};
+#[derive(Copy, Clone)]
+pub enum Key {
+    Right = 0,
+    Left  = 1,
+    Up    = 2,
+    Down  = 3,
+    A     = 4,
+    B     = 5,
+    Select= 6,
+    Start = 7,
+}
 
-#[derive(Default)]
 pub struct Joypad {
-    right: bool,
-    left: bool,
-    up: bool,
-    down: bool,
-    a: bool,
-    b: bool,
-    select: bool,
-    start: bool,
+    select_buttons: bool,
+    select_directions: bool,
+
+    buttons: u8,    // Bit 0-3
+    directions: u8, // Bit 0-3
 }
 
 impl Joypad {
     pub fn new() -> Self {
-        Self { 
-            right: false, 
-            left: false, 
-            up: false, 
-            down: false, 
-            a: false, 
-            b: false, 
-            select: false, 
-            start: false 
+        Self {
+            select_buttons: false,
+            select_directions: false,
+            buttons: 0x0F,
+            directions: 0x0F,
         }
     }
 
-    fn is_pressed(&self, key: &Key) -> bool {
-        match key {
-            Key::Right  => self.right,
-            Key::Left   => self.left,
-            Key::Up     => self.up,
-            Key::Down   => self.down,
-            Key::A      => self.a,
-            Key::B      => self.b,
-            Key::Select => self.select,
-            Key::Start  => self.start,
-        }
+    pub fn write(&mut self, value: u8) {
+        self.select_buttons = value & 0x20 == 0;
+        self.select_directions = value & 0x10 == 0;
     }
 
-    fn set(&mut self, key: Key, pressed: bool) {
-        match key {
-            Key::Right => self.right = pressed,
-            Key::Left  => self.left  = pressed,
-            Key::Up    => self.up    = pressed,
-            Key::Down  => self.down  = pressed,
-            Key::A     => self.a     = pressed,
-            Key::B     => self.b     = pressed,
-            Key::Select=> self.select= pressed,
-            Key::Start => self.start = pressed,
+    pub fn read(&self) -> u8 {
+        let mut result = 0xC0;
+
+        if self.select_buttons {
+            result |= 0x20;
         }
+    
+        if self.select_directions {
+            result |= 0x10;
+        }
+
+        if self.select_buttons {
+            result |= self.buttons & 0x0F;
+        } else if self.select_directions {
+            result |= self.directions & 0x0F;
+        } else {
+            result |= 0x0F;
+        }
+
+        result
     }
 
-    pub fn press(&mut self, key: Key, mmu: &mut Mmu) {
-        let was_pressed = self.is_pressed(&key);
+    pub fn press(&mut self, key: Key) -> bool {
+        let (mask, target) = match key {
+            Key::Right => (1 << 0, &mut self.directions),
+            Key::Left  => (1 << 1, &mut self.directions),
+            Key::Up    => (1 << 2, &mut self.directions),
+            Key::Down  => (1 << 3, &mut self.directions),
+            Key::A     => (1 << 0, &mut self.buttons),
+            Key::B     => (1 << 1, &mut self.buttons),
+            Key::Select=> (1 << 2, &mut self.buttons),
+            Key::Start => (1 << 3, &mut self.buttons),
+        };
 
-        if !was_pressed {
-            mmu.request_interrupt(Interrupt::Joypad);
-        }
+        let was_released = *target & mask != 0;
+        *target &= !mask;
 
-        self.set(key, true);
+        was_released
     }
 
     pub fn release(&mut self, key: Key) {
-        self.set(key, false);
-    }
-}
+        let (mask, target) = match key {
+            Key::Right => (1 << 0, &mut self.directions),
+            Key::Left  => (1 << 1, &mut self.directions),
+            Key::Up    => (1 << 2, &mut self.directions),
+            Key::Down  => (1 << 3, &mut self.directions),
+            Key::A     => (1 << 0, &mut self.buttons),
+            Key::B     => (1 << 1, &mut self.buttons),
+            Key::Select=> (1 << 2, &mut self.buttons),
+            Key::Start => (1 << 3, &mut self.buttons),
+        };
 
-pub enum Key {
-    Right, Left, Up, Down, A, B, Select, Start
+        *target |= mask;
+    }
 }

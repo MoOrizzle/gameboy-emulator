@@ -1,9 +1,11 @@
 use minifb::{Key, Window, WindowOptions};
 
 use super::framebuffer::{Framebuffer, SCREEN_H, SCREEN_W};
+use crate::gameboy::joypad::Key as JoypadKey;
 
 pub struct ScreenWindow {
     window: Window,
+    prev_keys: [bool; 8]
 }
 
 impl ScreenWindow {
@@ -25,7 +27,10 @@ impl ScreenWindow {
         )
         .expect("Failed to create window");
 
-        Self { window }
+        Self { 
+            window,
+            prev_keys: [false; 8], 
+        }
     }
 
     pub fn is_open(&self) -> bool {
@@ -37,5 +42,40 @@ impl ScreenWindow {
         self.window
             .update_with_buffer(&buffer, SCREEN_W, SCREEN_H)
             .expect("Failed to update window");
+    }
+
+    pub fn get_input(&mut self) -> Vec<(JoypadKey, bool)> {
+        let mut inputs = Vec::new();
+
+        let current = [
+            self.window.is_key_down(Key::Right),
+            self.window.is_key_down(Key::Left),
+            self.window.is_key_down(Key::Up),
+            self.window.is_key_down(Key::Down),
+            self.window.is_key_down(Key::Z),
+            self.window.is_key_down(Key::X),
+            self.window.is_key_down(Key::Space),
+            self.window.is_key_down(Key::S),
+        ];
+
+        let keys = [
+            JoypadKey::Right,
+            JoypadKey::Left,
+            JoypadKey::Up,
+            JoypadKey::Down,
+            JoypadKey::A,
+            JoypadKey::B,
+            JoypadKey::Start,
+            JoypadKey::Select,
+        ];
+
+        for i in 0..8 {
+            if current[i] != self.prev_keys[i] {
+                inputs.push((keys[i], current[i]));
+            }
+        }
+        
+        self.prev_keys = current;
+        inputs
     }
 }

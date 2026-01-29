@@ -3,53 +3,49 @@ pub mod screen;
 pub mod joypad;
 pub mod mmu;
 pub mod ppu;
+pub mod timer;
 
 use cpu::Cpu;
-use joypad::{Joypad, Key};
+use joypad::Key;
 use mmu::Mmu;
 use ppu::Ppu;
+use timer::Timer;
 
 
 pub struct GameBoy {
     cpu: Cpu,
-    joypad: Joypad,
     mmu: Mmu,
-    ppu: Ppu,
+    pub ppu: Ppu,
 }
 
 impl GameBoy {
     pub fn new(rom: Vec<u8>) -> Self {
         Self { 
             cpu: Cpu::new(), 
-            joypad: Joypad::new(),
-            mmu: Mmu::new(rom),
+            mmu: Mmu::new(rom, Timer::new()),
             ppu: Ppu::new(),
         }
     }
 
-    pub fn step(&mut self) {
+    pub fn step(&mut self) -> bool {
         let cycles = self.cpu.step(&mut self.mmu);
-
-        //self.timer.update(&mut self.mmu, cycles);
+        
+        self.mmu.tick(cycles);
         self.ppu.step(cycles as u16, &mut self.mmu);
 
-        self.cpu.handle_interrupts(&mut self.mmu);
-
-
         if self.ppu.frame_ready {
-            //self.ppu.finalize_frame(&self.mmu, &mut display_buffer);
-            //renderer.render(&display_buffer);
             self.ppu.frame_ready = false;
+            return true;
         }
+
+        false
     }
 
-
-
     pub fn key_down(&mut self, key: Key) {
-        self.joypad.press(key, &mut self.mmu);
+        self.mmu.key_down(key);
     }
 
     pub fn key_up(&mut self, key: Key) {
-        self.joypad.release(key);
+        self.mmu.key_up(key);
     }
 }

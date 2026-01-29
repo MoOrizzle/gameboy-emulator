@@ -46,14 +46,14 @@ impl Reg16 {
 
 #[derive(Default)]
 pub struct Registers {
-    pub a: u8,
+    a: u8,
     pub flag_register: FlagsRegister,
-    pub b: u8,
-    pub c: u8,
-    pub d: u8,
-    pub e: u8,
-    pub h: u8,
-    pub l: u8,
+    b: u8,
+    c: u8,
+    d: u8,
+    e: u8,
+    h: u8,
+    l: u8,
 }
 
 impl Registers {
@@ -121,7 +121,7 @@ impl Registers {
 #[allow(non_camel_case_types)]
 pub enum Flags {
     ZERO = 0x80,
-    SUBSTRACTION = 0x40,
+    SUB = 0x40,
     HALF_CARRY = 0x20,
     CARRY = 0x10
 }
