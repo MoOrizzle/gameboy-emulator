@@ -26,6 +26,9 @@ pub struct Cpu {
     pub pending_ime: bool,
     pub ime: bool, // Interrupt Master Enable
     pub halted: bool,
+
+    pub stopped: bool,
+    pub halt_bug: bool,
 }
 
 impl Cpu {
@@ -37,6 +40,8 @@ impl Cpu {
             pending_ime: false,
             ime: false,
             halted: false,
+            stopped: false,
+            halt_bug: false,
         }
     }
 
@@ -44,26 +49,34 @@ impl Cpu {
     /// 
     /// * `result` - Returns the cycles the cpu needs to execute the current opcode
     pub fn step(&mut self, mmu: &mut Mmu) -> u8 {
-        
-        if self.handle_interrupts(mmu) {
-            if self.pending_ime {
-                self.pending_ime = false;
-                self.ime = true;
+        let interrupt_cycles = self.handle_interrupts(mmu);
+        if interrupt_cycles > 0 {
+            return interrupt_cycles;
+        }
+
+        if self.stopped {
+            let ie = mmu.read8(0xFFFF) & 0x1F;
+            let iflag = mmu.read8(0xFF0F) & 0x1F;
+            
+            if (ie & iflag) != 0 {
+                self.stopped = false;
             }
-            return 5;
+            return 4;
         }
 
         if self.halted {
-            let ie = mmu.read8(0xFFFF);
-            let iflag = mmu.read8(0xFF0F);
-            if ie & iflag != 0 {
+            let ie = mmu.read8(0xFFFF) & 0x1F;
+            let iflag = mmu.read8(0xFF0F) & 0x1F;
+
+            if (ie & iflag) != 0 {
                 self.halted = false;
             }
             return 4;
         }
 
+        let mut executed_ei = false;
         let opcode = self.fetch_byte(mmu);
-        let cylces = match opcode {
+        let cycles = match opcode {
             // NOP aka No OPeration
             0x00 => 4,
 
@@ -79,11 +92,20 @@ impl Cpu {
 
                 let flags = &mut self.registers.flag_register;
                 flags.set_flag(Flags::ZERO, false);
-                flags.set_flag(Flags::SUBSTRACTION, false);
+                flags.set_flag(Flags::SUB, false);
                 flags.set_flag(Flags::HALF_CARRY, false);
                 flags.set_flag(Flags::CARRY, pushed_out == 1);
 
                 4
+            },
+
+            //LD [a16] SP
+            0x08 => {
+                let addr = self.fetch_word(mmu);
+
+                mmu.write16(addr, self.stack_pointer);
+
+                20
             },
 
             //RRCA 
@@ -98,7 +120,7 @@ impl Cpu {
 
                 let flags = &mut self.registers.flag_register;
                 flags.set_flag(Flags::ZERO, false);
-                flags.set_flag(Flags::SUBSTRACTION, false);
+                flags.set_flag(Flags::SUB, false);
                 flags.set_flag(Flags::HALF_CARRY, false);
                 flags.set_flag(Flags::CARRY, pushed_out == 1);
 
@@ -118,7 +140,7 @@ impl Cpu {
                 
                 let flags = &mut self.registers.flag_register;
                 flags.set_flag(Flags::ZERO, false);
-                flags.set_flag(Flags::SUBSTRACTION, false);
+                flags.set_flag(Flags::SUB, false);
                 flags.set_flag(Flags::HALF_CARRY, false);
                 flags.set_flag(Flags::CARRY, pushed_out == 1);
 
@@ -138,9 +160,16 @@ impl Cpu {
                 
                 let flags = &mut self.registers.flag_register;
                 flags.set_flag(Flags::ZERO, false);
-                flags.set_flag(Flags::SUBSTRACTION, false);
+                flags.set_flag(Flags::SUB, false);
                 flags.set_flag(Flags::HALF_CARRY, false);
                 flags.set_flag(Flags::CARRY, pushed_out == 1);
+
+                4
+            },
+
+            0x10 => {
+                self.fetch_byte(mmu);
+                self.stopped = true;
 
                 4
             },
@@ -152,33 +181,98 @@ impl Cpu {
                     //JR e8
                     0x18 => true,
                     //JR NZ e8
-                    0x20 => flags.get_flag(Flags::ZERO),
+                    0x20 => !flags.get_flag(Flags::ZERO),
                     //JR Z e8
                     0x28 => flags.get_flag(Flags::ZERO),
                     //JR NC e8
-                    0x30 => flags.get_flag(Flags::CARRY),
+                    0x30 => !flags.get_flag(Flags::CARRY),
                     //JR C e8
                     0x38 => flags.get_flag(Flags::CARRY),
                     
                     _ => unreachable!()
                 };
- 
-                if !condition {
-                    return 8;
-                }
                 
                 let jmp_offset = self.fetch_byte(mmu) as i8;
-                self.program_counter = ((self.program_counter as i16) + (jmp_offset as i16)) as u16;
 
-                12
+                if condition {
+                    self.program_counter = self.program_counter.wrapping_add_signed(jmp_offset as i16);
+                    12
+                } else {
+                    8
+                }
             },
             
+            //DAA (Decimal Adjust Accumulator)
+            0x27 => {
+                let mut a = self.registers.read8(&Reg8::A);
+                let flags = &mut self.registers.flag_register;
+                let mut adjust = 0u8;
+                let carry = flags.get_flag(Flags::CARRY);
+                let half_carry = flags.get_flag(Flags::HALF_CARRY);
+                let subtract = flags.get_flag(Flags::SUB);
+                
+                if half_carry || (!subtract && (a & 0x0F) > 0x09) {
+                    adjust |= 0x06;
+                }
+                
+                if carry || (!subtract && a > 0x99) {
+                    adjust |= 0x60;
+                    flags.set_flag(Flags::CARRY, true);
+                }
+                
+                if subtract {
+                    a = a.wrapping_sub(adjust);
+                } else {
+                    a = a.wrapping_add(adjust);
+                }
+                
+                self.registers.write8(&Reg8::A, a);
+
+                let flags = &mut self.registers.flag_register;
+                flags.set_flag(Flags::ZERO, a == 0);
+                flags.set_flag(Flags::HALF_CARRY, false);
+                
+                4
+            },
+
+            //CPL (Complement A - XOR with 0xFF)
+            0x2F => {
+                let a = self.registers.read8(&Reg8::A);
+                self.registers.write8(&Reg8::A, a ^ 0xFF);
+                
+                let flags = &mut self.registers.flag_register;
+                flags.set_flag(Flags::SUB, true);
+                flags.set_flag(Flags::HALF_CARRY, true);
+                
+                4
+            },
+
+            //SCF (Set Carry Flag)
+            0x37 => {
+                let flags = &mut self.registers.flag_register;
+                flags.set_flag(Flags::SUB, false);
+                flags.set_flag(Flags::HALF_CARRY, false);
+                flags.set_flag(Flags::CARRY, true);
+                
+                4
+            },
+
+            //CCF (Complement Carry Flag)
+            0x3F => {
+                let flags = &mut self.registers.flag_register;
+                let carry = flags.get_flag(Flags::CARRY);
+                flags.set_flag(Flags::SUB, false);
+                flags.set_flag(Flags::HALF_CARRY, false);
+                flags.set_flag(Flags::CARRY, !carry);
+                
+                4
+            },
+
             //INC r8 | HL
             0x04 | 0x0C | 0x14 | 0x1C | 0x24 | 0x2C | 0x34 | 0x3C |
             //DEC r8 | HL 
             0x05 | 0x0D | 0x15 | 0x1D | 0x25 | 0x2D | 0x35 | 0x3D => {
                 let destination_num = (opcode >> 3) & 0x07;
-
                 let destination = match destination_num {
                     6 => Operand8::IndirectHL,
                     _ => Operand8::Register(Reg8::from(destination_num))
@@ -202,21 +296,22 @@ impl Cpu {
 
                 let flags = &mut self.registers.flag_register;
                 flags.set_flag(Flags::ZERO, result == 0);
-                flags.set_flag(Flags::SUBSTRACTION, false);
+                flags.set_flag(Flags::SUB, !is_inc);
 
-                let half_carry_borrow = if is_inc { 0x0F } else { 0x00 };
-                flags.set_flag(Flags::HALF_CARRY, (val & 0x0F) == half_carry_borrow);
+                if is_inc {
+                    flags.set_flag(Flags::HALF_CARRY, (val & 0x0F) + 1 > 0x0F);
+                } else {
+                    flags.set_flag(Flags::HALF_CARRY, (val & 0x0F) == 0);
+                }
                 
                 if destination_num == 6 { 12 } else { 4 }
             },
 
-            //INC r16 | SP
+            //INC r16
             0x03 | 0x13 | 0x23 |
-            //DEC r16 | SP
+            //DEC r16
             0x0B | 0x1B | 0x2B => {
-                let destination_num = (opcode >> 4) & 0x07;
-                let reg16 = Reg16::from(destination_num);
-                
+                let reg16 = Reg16::from((opcode >> 4) & 0x07);
                 let val = self.registers.read16(&reg16);
 
                 let is_inc = ((opcode >> 3) & 0x01) == 0;
@@ -244,10 +339,19 @@ impl Cpu {
 
             //LD r n8
             0x06 | 0x0E | 0x16 | 0x1E | 0x26 | 0x2E | 0x3E => {
-                let reg = Reg8::from((opcode >> 3) & 0x07);
+                let reg_num = (opcode >> 3) & 0x07;
+                let operation = match reg_num {
+                    6 => Operand8::IndirectHL,
+                    0..=5 | 7 => Operand8::Register(Reg8::from(reg_num)),
+                    _ => panic!("unsupported operation on {:02X}", opcode),
+                };
+
                 let val = self.fetch_byte(mmu);
 
-                self.registers.write8(&reg, val);
+                match operation {
+                    Operand8::IndirectHL => mmu.write8(self.registers.read16(&Reg16::HL), val),
+                    Operand8::Register(reg) => self.registers.write8(&reg, val)
+                }
                 
                 8
             },
@@ -262,23 +366,21 @@ impl Cpu {
 
             //HALT
             0x76 => {
-                self.halted = true;
+                let ie = mmu.read8(0xFFFF) & 0x1F;
+                let iflag = mmu.read8(0xFF0F) & 0x1F;
+                let pending = (ie & iflag) != 0;
+
+                if !self.ime && pending {
+                    self.halt_bug = true;
+                } else {
+                    self.halted = true;
+                }
                 
                 4
             },
 
-            //LD r8 HL
+            //LD r8 [HL]
             0x46 | 0x4E | 0x56 | 0x5E | 0x66 | 0x6E | 0x7E => {
-                let src = Reg8::from(opcode & 0x07);
-
-                let val = self.registers.read8(&src);
-                mmu.write8(self.registers.read16(&Reg16::HL), val);
-
-                8
-            },
-
-            //LD HL r8
-            0x70 | 0x71 | 0x72 | 0x73 | 0x74 | 0x75 | 0x77 => {
                 let dst = Reg8::from((opcode >> 3) & 0x07);
 
                 let val = mmu.read8(self.registers.read16(&Reg16::HL));
@@ -287,8 +389,18 @@ impl Cpu {
                 8
             },
 
-            //LD r8 r8 -> All special HL "register" should already be handled
-            0x40..=0x7F => {
+            //LD [HL] r8
+            0x70 | 0x71 | 0x72 | 0x73 | 0x74 | 0x75 | 0x77 => {
+                let src = Reg8::from(opcode & 0x07);
+
+                let val = self.registers.read8(&src);
+                mmu.write8(self.registers.read16(&Reg16::HL), val);
+
+                8
+            },
+
+            //LD r8 r8 | [HL] -> All special HL "register" should already be handled
+            0x40..=0x75 | 0x77..=0x7F => {
                 let dst = Reg8::from((opcode >> 3) & 0x07);
                 let src = Reg8::from(opcode & 0x07);
 
@@ -438,6 +550,53 @@ impl Cpu {
                 16
             },
 
+            //ADD SP, e8
+            0xE8 => {
+                let e8 = self.fetch_byte(mmu) as i8 as i16;
+                let sp = self.stack_pointer;
+            
+                let result = sp.wrapping_add(e8 as u16);
+                self.stack_pointer = result;
+            
+                let sp_low = (sp & 0x00FF) as u8;
+                let e8_u = e8 as u8;
+                
+                let flags = &mut self.registers.flag_register;
+                flags.set_flag(Flags::ZERO, false);
+                flags.set_flag(Flags::SUB, false);
+                flags.set_flag(Flags::HALF_CARRY, ((sp_low & 0x0F) + (e8_u & 0x0F)) > 0x0F);
+                flags.set_flag(Flags::CARRY, (sp_low as u16 + e8_u as u16) > 0xFF);
+
+                16
+            }
+
+            // LD HL, SP+e8
+            0xF8 => {
+                let e8 = self.fetch_byte(mmu) as i8;
+                let sp = self.stack_pointer;
+            
+                let sp_low = sp & 0xFF;
+                let e8_u = (e8 as u16) & 0xFF;
+                
+                let flags = &mut self.registers.flag_register;
+                flags.set_flag(Flags::ZERO, false);
+                flags.set_flag(Flags::SUB, false);
+                flags.set_flag(Flags::HALF_CARRY, ((sp_low & 0x0F) + (e8_u & 0x0F)) > 0x0F);
+                flags.set_flag(Flags::CARRY, (sp_low + e8_u) > 0xFF);
+            
+                let result = sp.wrapping_add(e8 as i16 as u16);
+                self.registers.write16(&Reg16::HL, result);
+
+                12
+            }
+
+            // LD SP, HL
+            0xF9 => {
+                self.stack_pointer = self.registers.read16(&Reg16::HL);
+
+                8
+            }
+
             //*ALU OPERATIONS*
 
             //ADD A r8 | [HL] | n8
@@ -458,8 +617,8 @@ impl Cpu {
 
                 let flags = &mut self.registers.flag_register;
                 flags.set_flag(Flags::ZERO, result == 0);
-                flags.set_flag(Flags::SUBSTRACTION, false);
-                flags.set_flag(Flags::HALF_CARRY, (dst_value & 0x0F) == 0x00);
+                flags.set_flag(Flags::SUB, false);
+                flags.set_flag(Flags::HALF_CARRY, (dst_value & 0x0F) + (to_add_value & 0x0F) > 0x0F);
                 flags.set_flag(Flags::CARRY, (dst_value as u16 + to_add_value as u16) > 0xFF);
 
                 if reg_num == 6 { 8 } else { 4 }
@@ -487,7 +646,7 @@ impl Cpu {
 
                 let flags = &mut self.registers.flag_register;
                 flags.set_flag(Flags::ZERO, result == 0);
-                flags.set_flag(Flags::SUBSTRACTION, false);
+                flags.set_flag(Flags::SUB, false);
                 flags.set_flag(Flags::HALF_CARRY, ((dst_value & 0x0F) + (to_add_value & 0x0F) + carry_in) > 0x0F);
                 flags.set_flag(Flags::CARRY, (dst_value as u16 + to_add_value as u16 + carry_in as u16) > 0xFF);
 
@@ -516,11 +675,30 @@ impl Cpu {
 
                 let flags = &mut self.registers.flag_register;
                 flags.set_flag(Flags::ZERO, result == 0);
-                flags.set_flag(Flags::SUBSTRACTION, true);
-                flags.set_flag(Flags::HALF_CARRY, dst_value & 0x0F < (to_sub_value & 0x0F + carry_in));
-                flags.set_flag(Flags::CARRY, dst_value < to_sub_value + carry_in);
+                flags.set_flag(Flags::SUB, true);
+                flags.set_flag(Flags::HALF_CARRY, (dst_value & 0x0F) < ((to_sub_value & 0x0F) + carry_in));
+                flags.set_flag(Flags::CARRY, (dst_value as u16 ) < (to_sub_value as u16 + carry_in as u16));
 
                 if reg_num == 6 { 8 } else { 4 }
+            },
+
+            //ADD HL r16
+            0x09 | 0x19 | 0x29 | 0x39 => {
+                let reg_num = (opcode >> 4) & 0x03;
+                let reg16 = Reg16::from(reg_num);
+                
+                let hl_val = self.registers.read16(&Reg16::HL);
+                let to_add_val = if reg_num == 3 { self.stack_pointer } else { self.registers.read16(&reg16) };
+                
+                let result = hl_val.wrapping_add(to_add_val);
+                self.registers.write16(&Reg16::HL, result);
+                
+                let flags = &mut self.registers.flag_register;
+                flags.set_flag(Flags::SUB, false);
+                flags.set_flag(Flags::HALF_CARRY, (hl_val & 0x0FFF) + (to_add_val & 0x0FFF) > 0x0FFF);
+                flags.set_flag(Flags::CARRY, (hl_val as u32) + (to_add_val as u32) > 0xFFFF);
+                
+                8
             },
 
             //SUB A r8 | [HL] | n8
@@ -546,7 +724,7 @@ impl Cpu {
 
                 let flags = &mut self.registers.flag_register;
                 flags.set_flag(Flags::ZERO, result == 0);
-                flags.set_flag(Flags::SUBSTRACTION, true);
+                flags.set_flag(Flags::SUB, true);
                 flags.set_flag(Flags::HALF_CARRY, (dst_value & 0x0F) < (to_sub_value & 0x0F));
                 flags.set_flag(Flags::CARRY, to_sub_value > dst_value);
 
@@ -571,7 +749,7 @@ impl Cpu {
 
                 let flags = &mut self.registers.flag_register;
                 flags.set_flag(Flags::ZERO, result == 0);
-                flags.set_flag(Flags::SUBSTRACTION, false);
+                flags.set_flag(Flags::SUB, false);
                 flags.set_flag(Flags::HALF_CARRY, true);
                 flags.set_flag(Flags::CARRY, false);
 
@@ -596,7 +774,7 @@ impl Cpu {
 
                 let flags = &mut self.registers.flag_register;
                 flags.set_flag(Flags::ZERO, result == 0);
-                flags.set_flag(Flags::SUBSTRACTION, false);
+                flags.set_flag(Flags::SUB, false);
                 flags.set_flag(Flags::HALF_CARRY, false);
                 flags.set_flag(Flags::CARRY, false);
 
@@ -621,7 +799,7 @@ impl Cpu {
                 
                 let flags = &mut self.registers.flag_register;
                 flags.set_flag(Flags::ZERO, result == 0);
-                flags.set_flag(Flags::SUBSTRACTION, false);
+                flags.set_flag(Flags::SUB, false);
                 flags.set_flag(Flags::HALF_CARRY, false);
                 flags.set_flag(Flags::CARRY, false);
 
@@ -643,24 +821,25 @@ impl Cpu {
                     //JP a16
                     0xC3 => true,
                     //JP NZ a16
-                    0xC2 => flags.get_flag(Flags::ZERO),
+                    0xC2 => !flags.get_flag(Flags::ZERO),
                     //JP Z a16
                     0xCA => flags.get_flag(Flags::ZERO),
                     //JP NC a16
-                    0xD2 => flags.get_flag(Flags::CARRY),
+                    0xD2 => !flags.get_flag(Flags::CARRY),
                     //JP C a16
                     0xDA => flags.get_flag(Flags::CARRY),
 
                     _ => unreachable!()
                 };
 
-                if !condition {
-                    return 12;
-                }
-                
-                self.program_counter = self.fetch_word(mmu);
+                let addr = self.fetch_word(mmu);
 
-                16
+                if condition {
+                    self.program_counter = addr;
+                    16
+                } else {
+                    12
+                }
             },
 
             //RET
@@ -670,29 +849,29 @@ impl Cpu {
                     //RET | RETI
                     0xC9 | 0xD9 => true,
                     //RET NZ
-                    0xC0 => flags.get_flag(Flags::ZERO),
+                    0xC0 => !flags.get_flag(Flags::ZERO),
                     //RET Z
                     0xC8 => flags.get_flag(Flags::ZERO),
                     //RET NC
-                    0xD0 => flags.get_flag(Flags::CARRY),
+                    0xD0 => !flags.get_flag(Flags::CARRY),
                     //RET C
                     0xD8 => flags.get_flag(Flags::CARRY),
 
                     _ => unreachable!()
                 };
                 
-                if !condition {
-                    return 8;
+                if condition {
+                    self.program_counter = self.pop_pc_from_stack(mmu);
+
+                    //RETI
+                    if opcode == 0xD9 {
+                        self.ime = true;
+                    }
+
+                    if opcode == 0xC9 || opcode == 0xD9 { 16 } else { 20 }
+                } else { 
+                    8 
                 }
-
-                self.program_counter = self.pop_pc_from_stack(mmu);
-
-                //RETI
-                if opcode == 0xD9 {
-                    self.ime = true;
-                }
-
-                if opcode == 0xC9 || opcode == 0xD9 { 16 } else { 20 }
             },
 
             //CALL
@@ -702,42 +881,43 @@ impl Cpu {
                     //CALL a16
                     0xCD => true,
                     //CALL NZ a16
-                    0xC4 => flags.get_flag(Flags::ZERO),
+                    0xC4 => !flags.get_flag(Flags::ZERO),
                     //CALL Z a16
                     0xCC => flags.get_flag(Flags::ZERO),
                     //CALL NC a16
-                    0xD4 => flags.get_flag(Flags::CARRY),
+                    0xD4 => !flags.get_flag(Flags::CARRY),
                     //CALL C a16
                     0xDC => flags.get_flag(Flags::CARRY),
 
                     _ => unreachable!()
                 };
                 
-                if !condition {
-                    return 12;
+                let addr = self.fetch_word(mmu);
+
+                if condition {
+                    self.push_pc_to_stack(mmu);
+                    
+                    self.program_counter = addr;
+                    
+                    24
+                } else {
+                    12
                 }
-
-                let jmp_addr = self.fetch_word(mmu);
-
-                self.push_pc_to_stack(mmu);
-                
-                self.program_counter = jmp_addr;
-
-                24
             },
 
             //POP
             0xC1 | 0xD1 | 0xE1 | 0xF1 => {
                 let reg16 = Reg16::from((opcode >> 4) & 0x03);
-                let mut val = mmu.read16(self.stack_pointer);
+                let val = mmu.read16(self.stack_pointer);
+
+                self.stack_pointer += 2;
 
                 if reg16 == Reg16::AF {
-                    val &= 0xF0;
+                    self.registers.write16(&reg16, val & 0xFFF0);
+                } else {
+                    self.registers.write16(&reg16, val);
                 }
                 
-                self.stack_pointer += 2;
-                self.registers.write16(&reg16, val);
-            
                 12
             },
             
@@ -762,80 +942,94 @@ impl Cpu {
                 16
             },
 
+            //JP HL
+            0xE9 => {
+                self.program_counter = self.registers.read16(&Reg16::HL);
+                4
+            }
+
             //DI
             0xF3 => {
                 self.ime = false;
+                self.pending_ime = false;
                 4
             },
 
-            //DE
+            //EI
             0xFB => {
                 self.pending_ime = true;
+                executed_ei = true;
                 4
             },
 
-            _ => panic!("Unimplemented opcode {:02X}", opcode)
+            //ILLEGAL OPCODES
+            0xD3 | 0xDB | 0xDD | 0xE3 | 0xE4 | 0xEB | 0xEC | 0xED | 0xF4 | 0xFC | 0xFD => { 
+                println!("Illegal Opcode: {:02X}", opcode); 
+                
+                4
+            }
         };
 
-        if self.pending_ime {
+        if self.pending_ime && !executed_ei {
             self.pending_ime = false;
             self.ime = true;
         }
 
-        cylces
+        cycles
     }
 
     fn push_pc_to_stack(&mut self, mmu: &mut Mmu) {
         let pc_high = (self.program_counter >> 8) as u8;
         let pc_low = (self.program_counter as u8) & 0xFF;
 
-        self.stack_pointer -= 1;
+        self.stack_pointer = self.stack_pointer.wrapping_sub(1);
         mmu.write8(self.stack_pointer, pc_high);
-        self.stack_pointer -= 1;
+        self.stack_pointer = self.stack_pointer.wrapping_sub(1);
         mmu.write8(self.stack_pointer, pc_low);
     }
 
     fn pop_pc_from_stack(&mut self, mmu: &mut Mmu) -> u16 {
         let byte_low = mmu.read8(self.stack_pointer) as u16;
-        self.stack_pointer += 1;
+        self.stack_pointer = self.stack_pointer.wrapping_add(1);
 
         let byte_high = mmu.read8(self.stack_pointer) as u16;
-        self.stack_pointer += 1;
+        self.stack_pointer = self.stack_pointer.wrapping_add(1);
 
         (byte_high << 8) | byte_low
     }
 
-    pub fn handle_interrupts(&mut self, mmu: &mut Mmu) -> bool {
-        if !self.ime { return false; }
-
-        let ie = mmu.read8(0xFFFF);
-        let mut iflag = mmu.read8(0xFF0F);
-
+    pub fn handle_interrupts(&mut self, mmu: &mut Mmu) -> u8 {
+        let ie = mmu.read8(0xFFFF) & 0x1F;
+        let iflag = mmu.read8(0xFF0F) & 0x1F;
+        
         let pending = ie & iflag;
-        if pending == 0 { return false; }
-
-        for i in 0..5 {
-            if pending & (1 << i) == 0 { continue; }
-            
-            self.ime = false;
-
-            iflag &= !(1 << i);
-            mmu.write8(0xFF0F, iflag);
-            
-            self.push_pc_to_stack(mmu);
-
-            self.program_counter = match i {
-                0 => 0x40, // V-Blank
-                1 => 0x48, // LCD STAT
-                2 => 0x50, // Timer
-                3 => 0x58, // Serial
-                4 => 0x60, // Joypad
-                _ => unreachable!(),
-            };
-            break;
+        if pending == 0 || !self.ime { 
+            return 0; 
         }
 
-        true
+        let i = pending.trailing_zeros() as u8;
+        if i >= 5 {
+            return 0;
+        }
+
+        self.ime = false;
+        self.halted = false;
+
+        self.push_pc_to_stack(mmu);
+
+        self.program_counter = match i {
+            0 => 0x40, // V-Blank
+            1 => 0x48, // LCD STAT
+            2 => 0x50, // Timer
+            3 => 0x58, // Serial
+            4 => 0x60, // Joypad
+            _ => unreachable!(),
+        };
+
+        let new_if = (iflag & !(1 << i)) & 0x1F;
+        mmu.write8(0xFF0F, new_if);
+        
+        20
     }
 
     /// fetches next byte from MMU
@@ -843,7 +1037,11 @@ impl Cpu {
     /// increments program counter by 1
     fn fetch_byte(&mut self, mmu: &Mmu) -> u8 {
         let val = mmu.read8(self.program_counter);
-        self.program_counter += 1;
+        if self.halt_bug {
+            self.halt_bug = false;
+        } else {
+            self.program_counter = self.program_counter.wrapping_add(1);
+        }
 
         val
     }
@@ -861,7 +1059,7 @@ impl Cpu {
     fn set_rotate_register_flags(&mut self, result: u8, pushed_out: u8) {
         let flags = &mut self.registers.flag_register;
         flags.set_flag(Flags::ZERO, result == 0);
-        flags.set_flag(Flags::SUBSTRACTION, false);
+        flags.set_flag(Flags::SUB, false);
         flags.set_flag(Flags::HALF_CARRY, false);
         flags.set_flag(Flags::CARRY, pushed_out == 1); 
     }
@@ -937,13 +1135,13 @@ impl Cpu {
                 result
             },
 
-            //SWAP r8 | [HL] //TODO
+            //SWAP r8 | [HL]
             0x30..=0x37 => {
                 let result = ((dst_value & 0x0F) << 4) | ((dst_value & 0xF0) >> 4);
 
                 let flags = &mut self.registers.flag_register;
                 flags.set_flag(Flags::ZERO, result == 0);
-                flags.set_flag(Flags::SUBSTRACTION, false);
+                flags.set_flag(Flags::SUB, false);
                 flags.set_flag(Flags::HALF_CARRY, false);
                 flags.set_flag(Flags::CARRY, false);
 
@@ -966,7 +1164,7 @@ impl Cpu {
 
                 let flags = &mut self.registers.flag_register;
                 flags.set_flag(Flags::ZERO, result == 0);
-                flags.set_flag(Flags::SUBSTRACTION, false);
+                flags.set_flag(Flags::SUB, false);
                 flags.set_flag(Flags::HALF_CARRY, true);
 
                 result
@@ -997,7 +1195,7 @@ impl Cpu {
             Operand8::Register(ref reg) => self.registers.write8(reg, result),
         }
         
-        if destination_num == 6 { 12 } else { 8 }
+        if destination_num == 6 { 16 } else { 8 }
         
     }
 }
