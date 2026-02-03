@@ -1,5 +1,6 @@
 pub mod cpu;
 pub mod mmu;
+pub mod timer;
 
 use cpu::Cpu;
 use mmu::Mmu;
