@@ -1,6 +1,7 @@
 pub mod cpu;
 pub mod joypad;
 pub mod mmu;
+pub mod screen;
 pub mod timer;
 
 use cpu::Cpu;
