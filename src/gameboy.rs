@@ -1,18 +1,21 @@
 pub mod cpu;
 pub mod joypad;
 pub mod mmu;
+pub mod ppu;
 pub mod screen;
 pub mod timer;
 
 use cpu::Cpu;
 use joypad::Key;
 use mmu::Mmu;
+use ppu::Ppu;
 use timer::Timer;
 
 
 pub struct GameBoy {
     cpu: Cpu,
     mmu: Mmu,
+    pub ppu: Ppu,
 }
 
 impl GameBoy {
@@ -20,6 +23,7 @@ impl GameBoy {
         Self { 
             cpu: Cpu::new(), 
             mmu: Mmu::new(rom, Timer::new()),
+            ppu: Ppu::new(),
         }
     }
 
@@ -27,6 +31,12 @@ impl GameBoy {
         let cycles = self.cpu.step(&mut self.mmu);
         
         self.mmu.tick(cycles);
+        self.ppu.step(cycles as u16, &mut self.mmu);
+
+        if self.ppu.frame_ready {
+            self.ppu.frame_ready = false;
+            return true;
+        }
 
         false
     }
