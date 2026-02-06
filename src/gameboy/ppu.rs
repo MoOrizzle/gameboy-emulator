@@ -247,7 +247,6 @@ impl Ppu {
 
         if self.scanline > 153 {
             self.scanline = 0;
-            self.frame_ready = true;
         }
 
         mmu.write_ly(self.scanline);
