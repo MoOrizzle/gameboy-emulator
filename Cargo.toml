@@ -7,3 +7,5 @@ edition = "2024"
 cpal = "0.15"
 minifb = "0.25"
 ringbuf = "0.4.8"
+serde = { version = "1.0.147", features = ["derive"] }
+toml = "0.5.9"
