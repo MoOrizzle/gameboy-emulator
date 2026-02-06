@@ -1,3 +1,5 @@
+pub mod audio;
+pub mod apu;
 pub mod cpu;
 pub mod joypad;
 pub mod mmu;
@@ -5,6 +7,7 @@ pub mod ppu;
 pub mod screen;
 pub mod timer;
 
+use apu::Apu;
 use cpu::Cpu;
 use joypad::Key;
 use mmu::Mmu;
@@ -20,9 +23,13 @@ pub struct GameBoy {
 
 impl GameBoy {
     pub fn new(rom: Vec<u8>) -> Self {
-        Self { 
+        Self {
             cpu: Cpu::new(), 
-            mmu: Mmu::new(rom, Timer::new()),
+            mmu: Mmu::new(
+                rom, 
+                Apu::new(), 
+                Timer::new()
+            ),
             ppu: Ppu::new(),
         }
     }
@@ -31,6 +38,7 @@ impl GameBoy {
         let cycles = self.cpu.step(&mut self.mmu);
         
         self.mmu.tick(cycles);
+        self.mmu.tick_apu(cycles);
         self.ppu.step(cycles as u16, &mut self.mmu);
 
         if self.ppu.frame_ready {
@@ -39,6 +47,10 @@ impl GameBoy {
         }
 
         false
+    }
+
+    pub fn get_audio_samples(&mut self) -> (Vec<f32>, Vec<f32>) {
+        self.mmu.get_audio_samples()
     }
 
     pub fn key_down(&mut self, key: Key) {

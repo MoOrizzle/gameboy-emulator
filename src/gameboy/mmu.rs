@@ -1,4 +1,4 @@
-use super::{cpu::Interrupt, super::gameboy::{timer::{Timer, TimerAddr}, joypad::{Joypad, Key}}};
+use super::{cpu::Interrupt, super::gameboy::{apu::Apu, timer::{Timer, TimerAddr}, joypad::{Joypad, Key}}};
 
 
 /// struct that represent the Memory Managment Unit (MMU)
@@ -22,13 +22,14 @@ pub struct Mmu {
 
     banking_mode: u8,
 
+    apu: Apu,
     timer: Timer,
 
     mbc3_rtc_sel: Option<u8>,
 }
 
 impl Mmu {
-    pub fn new(rom: Vec<u8>, timer: Timer) -> Self {
+    pub fn new(rom: Vec<u8>, apu: Apu, timer: Timer) -> Self {
         let cartridge_type = rom.get(0x0147).copied().unwrap_or(0);
         let ram_size = Self::ram_size_from_header(
             rom.get(0x0149).copied().unwrap_or(0)
@@ -54,6 +55,7 @@ impl Mmu {
 
             banking_mode: 0,
 
+            apu,
             timer,
 
             mbc3_rtc_sel: None,
@@ -83,6 +85,23 @@ impl Mmu {
             0xFE00..=0xFE9F => self.oam[(addr - 0xFE00) as usize],
             0xFF00          => self.joypad.read(),
             0xFF0F          => self.io[0x0F] | 0xE0,
+            //APU Registers
+            0xFF10 => self.io[0x10],
+            0xFF11 => self.io[0x11] | 0x3F,
+            0xFF12 => self.io[0x12],
+            0xFF14 => self.io[0x14] | 0xBF,
+            
+            0xFF16 => self.io[0x16] | 0x3F,
+            0xFF17 => self.io[0x17],
+            0xFF19 => self.io[0x19] | 0xBF,
+            
+            0xFF1A => self.io[0x1A] | 0x7F,
+            0xFF1C => self.io[0x1C] | 0x9F,
+            0xFF1E => self.io[0x1E] | 0xBF,
+            
+            0xFF26 => self.apu.read_nr52() | 0x70,
+            0xFF30..=0xFF3F => self.apu.ch3.read_wave_ram(addr - 0xFF30),
+            //
             0xFF80..=0xFFFE => self.hram[(addr - 0xFF80) as usize],
             0xFF00..=0xFF7F => self.io[(addr - 0xFF00) as usize],
             0xFFFF          => self.ie,
@@ -169,6 +188,77 @@ impl Mmu {
                 self.timer.reset_divider();
                 self.io[0x04] = 0
             }, 
+
+            // APU Registers
+            0xFF10 => {
+                self.io[0x10] = value | 0x80;
+                self.apu.ch1.write_sweep(value);
+            },
+            0xFF11 => {
+                self.io[0x11] = value;
+                self.apu.ch1.duty = value >> 6;
+                self.apu.ch1.length_counter = 64 - (value & 0x3F);
+            }
+            0xFF12 => {
+                self.io[0x12] = value;
+                self.apu.ch1.write_envelope(value);
+            }
+            0xFF13 => self.apu.ch1.frequency = (self.apu.ch1.frequency & 0x0700) | value as u16,
+            0xFF14 => {
+                self.io[0x14] = value;
+                self.apu.ch1.write_freq_high(value);
+            }
+            
+            // Channel 2
+            0xFF16 => {
+                self.io[0x16] = value;
+                self.apu.ch2.write_duty_length(value);
+            }
+            0xFF17 => {
+                self.io[0x17] = value;
+                self.apu.ch2.write_envelope(value);
+            }
+            0xFF18 => self.apu.ch2.write_freq_low(value),
+            0xFF19 => {
+                self.io[0x19] = value;
+                self.apu.ch2.write_freq_high(value);
+            }
+            
+            // Channel 3 (Wave)
+            0xFF1A => {
+                self.io[0x1A] = value;
+                self.apu.ch3.write_nr30(value);
+            }
+            0xFF1B => self.apu.ch3.write_nr31(value as u16),
+            0xFF1C => {
+                self.io[0x1C] = value;
+                self.apu.ch3.write_nr32(value);
+            }
+            0xFF1D => self.apu.ch3.write_freq_low(value),
+            0xFF1E => {
+                self.io[0x1E] = value;
+                self.apu.ch3.write_freq_high(value);
+            }
+            
+            // Channel 4 (Noise)
+            0xFF20 => self.apu.ch4.write_nr41(value),
+            0xFF21 => self.apu.ch4.write_nr42(value),
+            0xFF22 => self.apu.ch4.write_nr43(value),
+            0xFF23 => {
+                self.apu.ch4.write_nr44(value);
+                if value & 0x80 != 0 {
+                    self.apu.ch4.trigger();
+                }
+            }
+            
+            // Control registers
+            0xFF24 => self.apu.write_nr50(value),
+            0xFF25 => self.apu.write_nr51(value),
+            0xFF26 => self.apu.write_nr52(value),
+            
+            0xFF30..=0xFF3F => self.apu.ch3.write_wave_ram(addr - 0xFF30, value),
+            //
+
             0xFF0F          => self.io[0x0F] = (self.io[0x0F] & 0xE0) | (value & 0x1F),
             0xFF41          => {
                 let read_only = self.io[0x41] & 0b0000_0111;
@@ -224,6 +314,15 @@ impl Mmu {
         if update.timer_interrupt {
             self.request_interrupt(Interrupt::Timer);
         }
+    }
+
+    pub fn tick_apu(&mut self, cycles: u8) {
+        self.apu.tick(cycles as u32);
+    }
+    
+    pub fn get_audio_samples(&mut self) -> (Vec<f32>, Vec<f32>) {
+        (std::mem::take(&mut self.apu.sample_buffer_l), 
+         std::mem::take(&mut self.apu.sample_buffer_r))
     }
 
     pub fn request_interrupt(&mut self, interrupt: Interrupt) {

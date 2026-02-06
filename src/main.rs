@@ -1,7 +1,7 @@
 mod rom;
 mod gameboy;
 
-use gameboy::{screen::window::ScreenWindow, GameBoy};
+use gameboy::{screen::window::ScreenWindow, GameBoy, audio::AudioQueue};
 
 
 fn main() {
@@ -9,6 +9,7 @@ fn main() {
 
     let mut gb = GameBoy::new(rom);
     let mut screen = ScreenWindow::new("MoBoy - Emulator", 4);
+    let audio = AudioQueue::new();
 
     while screen.is_open() {
         let inputs = screen.get_input();
@@ -22,6 +23,11 @@ fn main() {
 
         if gb.step() {
             screen.draw(&gb.ppu.framebuffer);
+        }
+
+        let (left, right) = gb.get_audio_samples();
+        if !left.is_empty() {
+            audio.push_samples(&left, &right);
         }
     }
 }
